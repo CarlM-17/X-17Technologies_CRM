@@ -1,0 +1,29 @@
+{
+  "name": "x17-technologies-crm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "X-17 Technologies CRM with Google Sheets synchronization",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "6.6.0",
+    "png-to-ico": "^3.0.2",
+    "rcedit": "^5.0.2"
+  },
+  "pkg": {
+    "scripts": [
+      "index.js"
+    ],
+    "outputPath": "."
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
