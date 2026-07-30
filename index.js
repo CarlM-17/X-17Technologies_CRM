@@ -120,7 +120,7 @@ async function ensureRecordsSheet() {
   let target = (meta.sheets || []).find(s => s.properties.title === RECORDS_SHEET);
   if (!target) {
     const created = await google(':batchUpdate', {
-      method: 'POST', body: JSON.stringify({ requests: [{ addSheet: { properties: { title: RECORDS_SHEET, frozenRowCount: 1 } } }] })
+      method: 'POST', body: JSON.stringify({ requests: [{ addSheet: { properties: { title: RECORDS_SHEET, gridProperties: { frozenRowCount: 1 } } } }] })
     });
     target = { properties: created.replies[0].addSheet.properties };
   }
