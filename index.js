@@ -11,7 +11,7 @@ const OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
 const OAUTH_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET || '';
 const OAUTH_REFRESH_TOKEN = process.env.GOOGLE_OAUTH_REFRESH_TOKEN || '';
 const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || '';
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/edit`;
 const HEADERS = ['ID', 'Date', 'Description', 'Price', 'Customer Name', 'Address', 'License Number', 'Note', 'Updated At', 'Pic 1', 'Pic 2', 'Pic 3'];
 const LOGO_BASE64 = [
@@ -323,7 +323,13 @@ function cleanRecord(body) {
   return value;
 }
 
-app.get('/api/config', (_req, res) => res.json({ sheetUrl: SHEET_URL, connected: Boolean(credentials().email && credentials().key), driveConnected: Boolean(OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET && OAUTH_REFRESH_TOKEN), recordsSheet: RECORDS_SHEET }));
+app.get('/api/config', (_req, res) => res.json({
+  sheetUrl: SHEET_URL,
+  connected: Boolean(credentials().email && credentials().key),
+  driveConnected: Boolean(OAUTH_CLIENT_ID && OAUTH_CLIENT_SECRET && OAUTH_REFRESH_TOKEN),
+  driveSetup: { clientId: Boolean(OAUTH_CLIENT_ID), clientSecret: Boolean(OAUTH_CLIENT_SECRET), refreshToken: Boolean(OAUTH_REFRESH_TOKEN) },
+  recordsSheet: RECORDS_SHEET
+}));
 
 app.get('/logo.png', (_req, res) => {
   res.set({ 'content-type': 'image/png', 'cache-control': 'public, max-age=31536000, immutable' });
@@ -362,7 +368,10 @@ app.get('/oauth/setup', (req, res) => {
 
 app.get('/oauth/callback', async (req, res) => {
   try {
-    if (!req.query.code) return res.status(400).type('html').send(safePage('Connection cancelled', '<p>Google did not return an authorization code.</p>'));
+    if (!req.query.code) {
+      const reason = String(req.query.error_description || req.query.error || 'Google did not return an authorization code.').replace(/[&<>]/g, '');
+      return res.status(400).type('html').send(safePage('Google Drive was not connected', `<p>${reason}</p><p><a href="/oauth/setup">Try connecting again</a></p>`));
+    }
     const tokens = await oauthTokenRequest({
       code: String(req.query.code), client_id: OAUTH_CLIENT_ID, client_secret: OAUTH_CLIENT_SECRET,
       redirect_uri: computeRedirectUri(req), grant_type: 'authorization_code'
