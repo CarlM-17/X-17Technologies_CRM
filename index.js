@@ -460,8 +460,8 @@ app.get('/api/raw-materials', async (_req, res) => {
     const rows = await getValues(RAW_MATERIALS_SHEET);
     const items = rows.slice(1)
       .map(r => ({
-        description: String(r?.[0] || '').trim(),
-        qty: Number(String(r?.[1] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        description: String(r?.[1] || '').trim(),
+        qty: Number(String(r?.[2] || '0').replace(/[^0-9.-]/g, '')) || 0,
         amount: Number(String(r?.[4] || '0').replace(/[^0-9.-]/g, '')) || 0
       }))
       .filter(r => r.description);
