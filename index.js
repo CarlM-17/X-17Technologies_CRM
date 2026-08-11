@@ -460,15 +460,71 @@ app.get('/api/raw-materials', async (_req, res) => {
   try {
     const rows = await getValues(RAW_MATERIALS_SHEET);
     const items = rows.slice(1)
-      .map(r => ({
+      .map((r, i) => ({
+        rowIndex: i + 2,
         description: String(r?.[1] || '').trim(),
         qty: Number(String(r?.[2] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        unitPrice: Number(String(r?.[3] || '0').replace(/[^0-9.-]/g, '')) || 0,
         amount: Number(String(r?.[4] || '0').replace(/[^0-9.-]/g, '')) || 0,
-        supplier: String(r?.[5] || '').trim()
+        supplier: String(r?.[5] || '').trim(),
+        suppliers: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+          .map(idx => String(r?.[idx] || '').trim())
+          .filter(Boolean)
       }))
       .filter(r => r.description);
     res.json({ items });
   } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
+app.patch('/api/raw-materials/:rowIndex', async (req, res) => {
+  try {
+    const rowIndex = parseInt(req.params.rowIndex, 10);
+    if (!Number.isFinite(rowIndex) || rowIndex < 2) throw Object.assign(new Error('Invalid row index.'), { status: 400 });
+    const rows = await getValues(RAW_MATERIALS_SHEET);
+    const row = rows[rowIndex - 1];
+    if (!row) return res.status(404).json({ error: 'Raw material row not found.' });
+    const num = v => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+    const description = req.body?.description != null ? String(req.body.description).trim() : String(row[1] || '');
+    if (!description) throw Object.assign(new Error('Description cannot be empty.'), { status: 400 });
+    const qty = num(row[2]);
+    const unitPrice = req.body?.unitPrice != null ? num(req.body.unitPrice) : num(row[3]);
+    const amount = +(qty * unitPrice).toFixed(2);
+    await google(`/values:batchUpdate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        valueInputOption: 'USER_ENTERED',
+        data: [
+          { range: `'${RAW_MATERIALS_SHEET}'!B${rowIndex}`, values: [[description]] },
+          { range: `'${RAW_MATERIALS_SHEET}'!D${rowIndex}:E${rowIndex}`, values: [[unitPrice, amount]] }
+        ]
+      })
+    });
+    res.json({ ok: true, rowIndex, description, unitPrice, amount });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+app.post('/api/raw-materials/:rowIndex/suppliers', async (req, res) => {
+  try {
+    const rowIndex = parseInt(req.params.rowIndex, 10);
+    if (!Number.isFinite(rowIndex) || rowIndex < 2) throw Object.assign(new Error('Invalid row index.'), { status: 400 });
+    const supplier = String(req.body?.supplier || '').trim();
+    if (!supplier) throw Object.assign(new Error('Supplier name is required.'), { status: 400 });
+    const rows = await getValues(RAW_MATERIALS_SHEET);
+    const row = rows[rowIndex - 1];
+    if (!row) return res.status(404).json({ error: 'Raw material row not found.' });
+    const supplierCols = [5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+    const existing = supplierCols.map(i => String(row[i] || '').trim());
+    if (existing.some(s => s && s.toLowerCase() === supplier.toLowerCase())) {
+      throw Object.assign(new Error('That supplier is already listed for this material.'), { status: 400 });
+    }
+    const emptyIdx = existing.findIndex(s => !s);
+    if (emptyIdx < 0) throw Object.assign(new Error('All 10 supplier slots are full for this material.'), { status: 400 });
+    const colLetter = String.fromCharCode('A'.charCodeAt(0) + supplierCols[emptyIdx]);
+    await google(`/values/${encodeURIComponent(`'${RAW_MATERIALS_SHEET}'!${colLetter}${rowIndex}`)}?valueInputOption=USER_ENTERED`, {
+      method: 'PUT', body: JSON.stringify({ values: [[supplier]] })
+    });
+    res.json({ ok: true, supplier, column: colLetter });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
 });
 
 app.get('/api/routers', async (_req, res) => {
@@ -910,8 +966,41 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 .cost-items-grid .cost-item .desc{font-size:14px;font-weight:500;color:var(--text);line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:break-word;min-width:0}
 .cost-items-grid .cost-item .qty{text-align:center;font-size:14px;color:var(--muted);font-weight:600}
 .cost-items-grid .cost-item input.amount{padding:9px 12px;font-size:14px;text-align:right;width:100%;font-variant-numeric:tabular-nums}
-.cost-items-grid .cost-item input.supplier-input{padding:9px 12px;font-size:13px;width:100%;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--text);font-family:inherit}
-.cost-items-grid .cost-item input.supplier-input:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
+.cost-items-grid .cost-item input.supplier-input,.cost-items-grid .cost-item select.supplier-select{padding:9px 12px;font-size:13px;width:100%;border:1px solid var(--line);border-radius:6px;background:#fff;color:var(--text);font-family:inherit}
+.cost-items-grid .cost-item input.supplier-input:focus,.cost-items-grid .cost-item select.supplier-select:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
+.cost-items-grid .cost-item select.supplier-select{cursor:pointer;appearance:auto}
+
+/* Edit RawMaterials tab */
+.raw-mat-edit-table{width:100%;border-collapse:collapse;min-width:1000px;font-size:13px}
+.raw-mat-edit-table th{background:var(--panel2);color:var(--primary);font-size:11px;text-transform:uppercase;letter-spacing:.05em;text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);font-weight:700;position:sticky;top:0;z-index:2}
+.raw-mat-edit-table td{padding:12px 14px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+.raw-mat-edit-table tr:hover td{background:var(--panel2)}
+.raw-mat-edit-table .rm-num{color:var(--muted);font-weight:600;width:44px;text-align:center}
+.raw-mat-edit-table .rm-qty{color:var(--muted);font-weight:600;width:60px;text-align:center;vertical-align:middle}
+.raw-mat-edit-table .rm-amount{color:var(--primary);font-weight:700;white-space:nowrap;vertical-align:middle;font-variant-numeric:tabular-nums}
+.raw-mat-edit-table input.rm-desc,.raw-mat-edit-table input.rm-price{padding:9px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px;width:100%;background:#fff;color:var(--text);font-family:inherit}
+.raw-mat-edit-table input.rm-price{text-align:right;font-variant-numeric:tabular-nums;max-width:140px}
+.raw-mat-edit-table input.rm-desc:focus,.raw-mat-edit-table input.rm-price:focus,.raw-mat-edit-table input.rm-new-sup:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
+.raw-mat-edit-table .rm-sup-cell{min-width:280px}
+.raw-mat-edit-table .supplier-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.supplier-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:linear-gradient(135deg,var(--accent-soft),#eff6ff);color:var(--primary);border:1px solid #bfdbfe;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em;white-space:nowrap}
+.rm-empty-sups{color:var(--muted);font-size:12px;font-style:italic}
+.supplier-add-row{display:flex;gap:6px;align-items:stretch}
+.supplier-add-row input.rm-new-sup{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;background:#fff;color:var(--text);font-family:inherit}
+.supplier-add-row .btn.rm-add-sup{padding:8px 12px;font-size:12px;min-height:36px;white-space:nowrap}
+.rm-slot-note{margin-top:6px;font-size:11px;color:var(--amber);font-style:italic}
+.raw-mat-edit-table .btn.rm-save{white-space:nowrap;min-height:36px}
+@media(max-width:900px){
+  .raw-mat-edit-table{min-width:0}
+  .raw-mat-edit-table thead{display:none}
+  .raw-mat-edit-table tbody,.raw-mat-edit-table tr,.raw-mat-edit-table td{display:block}
+  .raw-mat-edit-table tr{margin:12px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:var(--shadow);padding:6px 0}
+  .raw-mat-edit-table td{padding:10px 14px;border-bottom:1px solid #f1f5f9;display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center}
+  .raw-mat-edit-table td:before{content:attr(data-mob-label);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+  .raw-mat-edit-table td:last-child{border-bottom:none}
+  .raw-mat-edit-table .rm-num,.raw-mat-edit-table .rm-qty,.raw-mat-edit-table .rm-amount{text-align:left}
+  .raw-mat-edit-table input.rm-price{max-width:none}
+}
 .cost-items-grid .cost-item .line-total{display:none!important}
 .cost-items-grid .cost-item-router{grid-template-columns:minmax(0,1.4fr) 60px 130px minmax(140px,1fr) 32px!important;background:linear-gradient(180deg,#f0fdf4,#ffffff)!important}
 .cost-items-grid .cost-item-router .remove-router{width:28px;height:28px}
@@ -1044,7 +1133,7 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 <header class="topbar"><div class="brand"><img class="logo" src="/logo.png" alt="X-17 Technologies logo"><div><h1>X-17 Technologies CRM</h1><p>Sales intelligence command center</p></div></div><div class="top-actions"><div class="status"><i class="dot" id="statusDot"></i><span id="statusText">Checking connection</span></div><a class="btn" id="sheetLink" target="_blank" rel="noopener"><span>↗</span><span class="sheet-label">Open Google Sheet</span></a></div></header>
 <section class="hero"><div class="hero-main"><div class="eyebrow">Customer intelligence • Live operations</div><h2>Turn every sale into a smarter customer relationship.</h2><p>Capture customer records, monitor product performance, and keep your team synchronized with one clear, mobile-ready workspace.</p></div><div class="sync-card"><div class="sync-head"><div><div class="eyebrow">Data uplink</div><strong>Google Sheets</strong></div><div class="sync-orb"></div></div><p id="syncCopy">Connecting to your workspace…</p><div class="sync-meta"><span id="syncTime">Not synced yet</span><span id="recordSheet">CRM Records</span></div></div></section>
 <section class="metrics"><article class="metric"><div class="metric-top"><span>Total records</span><i class="metric-icon">▦</i></div><div class="metric-value" id="mRecords">0</div><div class="metric-foot"><span class="positive">Live</span> customer database</div></article><article class="metric"><div class="metric-top"><span>Total sales</span><i class="metric-icon">₱</i></div><div class="metric-value" id="mSales">₱0</div><div class="metric-foot">Across visible records</div></article><article class="metric"><div class="metric-top"><span>This month</span><i class="metric-icon">◫</i></div><div class="metric-value" id="mMonth">0</div><div class="metric-foot">New customer entries</div></article><article class="metric"><div class="metric-top"><span>Top product</span><i class="metric-icon">◇</i></div><div class="metric-value" id="mTop" style="font-size:16px;line-height:1.35">—</div><div class="metric-foot">By number of records</div></article></section>
-<nav class="view-tabs" role="tablist"><button class="view-tab active" data-view="records" role="tab" aria-selected="true">Customer Records</button><button class="view-tab" data-view="costs" role="tab" aria-selected="false">Cost &amp; Expenses</button></nav>
+<nav class="view-tabs" role="tablist"><button class="view-tab active" data-view="records" role="tab" aria-selected="true">Customer Records</button><button class="view-tab" data-view="costs" role="tab" aria-selected="false">Cost &amp; Expenses</button><button class="view-tab" data-view="editRaw" role="tab" aria-selected="false">Edit RawMaterials</button></nav>
 <div class="view active" id="viewRecords">
 <section class="workspace">
 <aside class="panel form-panel"><div class="panel-title"><h3 id="formTitle">Add customer record</h3><span>Secure entry</span></div><form class="form-body" id="recordForm"><div class="editing" id="editingBanner"><span>Editing selected record</span><button type="button" class="icon-btn" id="cancelEdit" aria-label="Cancel edit">×</button></div><div class="form-grid"><div class="field"><label for="date">DATE <span class="req">*</span></label><input id="date" name="date" type="date" required></div><div class="field"><label for="price">PRICE (PHP) <span class="req">*</span></label><input id="price" name="price" type="number" min="0" step="0.01" placeholder="0.00" required></div></div><div class="field"><label for="description">DESCRIPTION / PRODUCT <span class="req">*</span></label><select id="description" name="description" required><option value="">Loading Product List…</option></select></div><div class="field"><label for="customerName">CUSTOMER NAME <span class="req">*</span></label><input id="customerName" name="customerName" autocomplete="name" placeholder="Full name" required></div><div class="field"><label for="phoneNumber">PHONE NUMBER</label><input id="phoneNumber" name="phoneNumber" type="tel" autocomplete="tel" inputmode="tel" placeholder="e.g. 0917 123 4567"></div><div class="field"><label for="address">ADDRESS</label><input id="address" name="address" autocomplete="street-address" placeholder="Complete address"></div><div class="field"><label for="orderNumber">ORDER NUMBER</label><input id="orderNumber" name="orderNumber" placeholder="e.g. INV-1024"></div><div class="field"><label for="licenseNumber">LICENSE NUMBER</label><input id="licenseNumber" name="licenseNumber" placeholder="e.g. NTC / business license"></div><div class="field"><label for="source">SOURCE</label><select id="source" name="source"><option value="">Loading Source List…</option></select></div><div class="field"><label for="note">NOTE</label><textarea id="note" name="note" maxlength="1000" placeholder="Add context, follow-up, or special instructions"></textarea></div><div class="form-actions"><button class="btn primary" id="saveBtn" type="submit">＋ Add record</button><button class="btn" id="resetBtn" type="button">Clear</button><button class="btn danger" id="deleteBtn" type="button" disabled>Delete</button></div></form></aside>
@@ -1085,6 +1174,21 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
         <tbody id="costLogRows"></tbody>
       </table>
       <div class="empty" id="costEmpty"><div class="empty-icon">⌁</div><strong>No cost entries yet</strong><div>Pick an order above, review the materials, then save.</div></div>
+    </div>
+  </section>
+</div>
+</section>
+</div>
+<div class="view" id="viewEditRaw" hidden>
+<section class="workspace cost-workspace">
+<div class="content">
+  <section class="panel table-panel">
+    <div class="panel-title"><h3>Edit RawMaterials Cost &amp; Suppliers</h3><span id="rmCount">0 materials</span></div>
+    <div class="table-scroll">
+      <table class="raw-mat-edit-table">
+        <thead><tr><th>#</th><th>Description</th><th>QTY</th><th>Unit Price</th><th>Amount</th><th>Suppliers</th><th>Actions</th></tr></thead>
+        <tbody id="rmRows"><tr><td colspan="7" class="status-msg">Loading RawMaterials…</td></tr></tbody>
+      </table>
     </div>
   </section>
 </div>
@@ -1201,7 +1305,7 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   async function deleteIncome(){if(!incomeCurrentId)return;var r=records.find(function(v){return v.id===incomeCurrentId});if(!confirm('Delete the income details for '+(r?r.customerName:'this record')+'? The customer record itself will be kept.'))return;var btn=$('incomeDeleteBtn');btn.disabled=true;try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'DELETE'});toast('Income details cleared.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false}}
   $('incomeForm').onsubmit=saveIncome;$('incomeCancelBtn').onclick=closeIncomeModal;$('closeIncomeBtn').onclick=closeIncomeModal;$('incomeDeleteBtn').onclick=deleteIncome;$('incomeModal').onclick=function(e){if(e.target===$('incomeModal'))closeIncomeModal()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('incomeModal').className.indexOf('show')>-1)closeIncomeModal()});['incCommission','incAdvertising','incFreight','incWHT','incPaymentFee','incOrderProcessingFee'].forEach(function(id){$(id).addEventListener('input',computeIncomeNet)});$('incNetTotal').addEventListener('input',function(){incomeNetTouched=true});
   var rawMaterials=[],routerMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={},costLineSuppliers={},selectedRouters=[];
-  function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!=='view'+name.charAt(0).toUpperCase()+name.slice(1)});if(name==='costs'){loadCosts();refreshCostOrderOptions()}}
+  function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var targetId='view'+name.charAt(0).toUpperCase()+name.slice(1);document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!==targetId});if(name==='costs'){loadCosts();refreshCostOrderOptions()}if(name==='editRaw'){renderRawMatEditRows()}}
   document.querySelectorAll('.view-tab').forEach(function(b){b.onclick=function(){switchView(b.dataset.view)}});
   async function loadRawMaterials(){try{var d=await api('/api/raw-materials');rawMaterials=d.items||[]}catch(e){rawMaterials=[]}}
   async function loadRouters(){try{var d=await api('/api/routers');routerMaterials=d.items||[]}catch(e){routerMaterials=[]}refreshRouterPicker()}
@@ -1211,7 +1315,7 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   function renderSelectedRouters(){var wrap=$('costRouterItems');if(!selectedRouters.length){wrap.innerHTML='<div class="cost-empty">No routers selected yet.</div>';updateCostTotal();refreshRouterPicker();return}wrap.innerHTML=selectedRouters.map(function(s,i){var m=routerMaterials[s.idx];if(!m)return '';var lineTotal=Number(s.amount)||0;return '<div class="cost-item cost-item-router" data-selected="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><input class="qty-input" type="number" step="1" min="0" inputmode="numeric" value="'+(Number(s.qty)||0)+'" data-sel-qty="'+i+'" aria-label="QTY for '+esc(m.description)+'"><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(s.amount)||0).toFixed(2)+'" data-sel-amt="'+i+'" aria-label="Amount for '+esc(m.description)+'"><input class="supplier-input" type="text" value="'+esc(s.supplier||'')+'" data-sel-sup="'+i+'" placeholder="Supplier" aria-label="Supplier for '+esc(m.description)+'"><div class="line-total" data-sel-total="'+i+'">'+money(lineTotal)+'</div><button type="button" class="remove-router" data-sel-remove="'+i+'" aria-label="Remove '+esc(m.description)+'">×</button></div>'}).join('');wrap.querySelectorAll('input[data-sel-amt]').forEach(function(inp){inp.addEventListener('input',function(){var i=Number(inp.dataset.selAmt);selectedRouters[i].amount=Number(inp.value)||0;var cell=wrap.querySelector('[data-sel-total="'+i+'"]');if(cell)cell.textContent=money(selectedRouters[i].amount);updateCostTotal()})});wrap.querySelectorAll('input[data-sel-qty]').forEach(function(inp){inp.addEventListener('input',function(){var i=Number(inp.dataset.selQty);selectedRouters[i].qty=Number(inp.value)||0})});wrap.querySelectorAll('input[data-sel-sup]').forEach(function(inp){inp.addEventListener('input',function(){var i=Number(inp.dataset.selSup);selectedRouters[i].supplier=inp.value})});wrap.querySelectorAll('[data-sel-remove]').forEach(function(btn){btn.onclick=function(){var i=Number(btn.dataset.selRemove);selectedRouters.splice(i,1);renderSelectedRouters()}});updateCostTotal();refreshRouterPicker()}
   function populateCostItems(orderNumber){var rawWrap=$('costItems');if(!orderNumber){rawWrap.innerHTML='<div class="cost-empty">'+(rawMaterials.length?'Pick an order to load the raw materials list.':'RawMaterials sheet is empty or unavailable.')+'</div>';$('costSaveBtn').disabled=true;$('costContext').textContent='Pick an order to load the raw materials list.';costLineAmounts={};costLineSuppliers={};selectedRouters=[];renderSelectedRouters();updateCostTotal();return}var rec=records.find(function(r){return r.orderNumber===orderNumber});$('costContext').innerHTML=rec?'Order <strong>'+esc(rec.orderNumber)+'</strong> · '+esc(rec.customerName||'—')+' · '+esc(rec.description||'—')+' · Gross '+money(rec.price):'Order <strong>'+esc(orderNumber)+'</strong>';
     costLineAmounts={};costLineSuppliers={};
-    if(rawMaterials.length){rawWrap.innerHTML=rawMaterials.map(function(m,i){costLineAmounts[i]=Number(m.amount)||0;costLineSuppliers[i]=String(m.supplier||'');var lineTotal=Number(m.amount)||0;return '<div class="cost-item" data-index="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><div class="qty">×'+(Number(m.qty)||0)+'</div><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-raw="'+i+'" aria-label="Amount for '+esc(m.description)+'"><input class="supplier-input" type="text" value="'+esc(costLineSuppliers[i])+'" data-raw-sup="'+i+'" placeholder="Supplier" aria-label="Supplier for '+esc(m.description)+'"><div class="line-total" data-raw-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');rawWrap.querySelectorAll('input.amount[data-raw]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.raw);costLineAmounts[idx]=Number(inp.value)||0;var cell=rawWrap.querySelector('[data-raw-total="'+idx+'"]');if(cell)cell.textContent=money(costLineAmounts[idx]);updateCostTotal()})});rawWrap.querySelectorAll('input.supplier-input[data-raw-sup]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.rawSup);costLineSuppliers[idx]=inp.value})})}else{rawWrap.innerHTML='<div class="cost-empty">RawMaterials sheet is empty or unavailable.</div>'}
+    if(rawMaterials.length){rawWrap.innerHTML=rawMaterials.map(function(m,i){costLineAmounts[i]=Number(m.amount)||0;var sups=Array.isArray(m.suppliers)?m.suppliers:[];var defaultSup=sups[0]||String(m.supplier||'');costLineSuppliers[i]=defaultSup;var lineTotal=Number(m.amount)||0;var supOpts='<option value="">— Select supplier —</option>'+sups.map(function(s){return '<option value="'+esc(s)+'"'+(s===defaultSup?' selected':'')+'>'+esc(s)+'</option>'}).join('');return '<div class="cost-item" data-index="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><div class="qty">×'+(Number(m.qty)||0)+'</div><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-raw="'+i+'" aria-label="Amount for '+esc(m.description)+'"><select class="supplier-select" data-raw-sup="'+i+'" aria-label="Supplier for '+esc(m.description)+'">'+supOpts+'</select><div class="line-total" data-raw-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');rawWrap.querySelectorAll('input.amount[data-raw]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.raw);costLineAmounts[idx]=Number(inp.value)||0;var cell=rawWrap.querySelector('[data-raw-total="'+idx+'"]');if(cell)cell.textContent=money(costLineAmounts[idx]);updateCostTotal()})});rawWrap.querySelectorAll('select.supplier-select[data-raw-sup]').forEach(function(sel){sel.addEventListener('change',function(){var idx=Number(sel.dataset.rawSup);costLineSuppliers[idx]=sel.value})})}else{rawWrap.innerHTML='<div class="cost-empty">RawMaterials sheet is empty or unavailable.</div>'}
     selectedRouters=[];renderSelectedRouters();
     $('costSaveBtn').disabled=false;updateCostTotal()}
   function updateCostTotal(){var total=0;rawMaterials.forEach(function(m,i){total+=Number(costLineAmounts[i])||0});selectedRouters.forEach(function(s){total+=Number(s.amount)||0});$('costTotal').textContent=money(total)}
@@ -1225,6 +1329,9 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   async function saveCostEdit(e){e.preventDefault();if(!costEditingId)return;var btn=$('costEditSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs/'+encodeURIComponent(costEditingId),{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({qty:$('costEditQty').value,amount:$('costEditAmount').value,supplier:$('costEditSupplier').value})});toast('Cost line updated.');closeCostEdit();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
   async function deleteCostLine(id){var line=costEntries.find(function(l){return l.id===id});if(!line)return;if(!confirm('Delete this cost line? \n\n'+(line.description||'')+' — '+money(line.total)))return;try{await api('/api/costs/'+encodeURIComponent(id),{method:'DELETE'});toast('Cost line deleted.');await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}}
   $('costEditForm').onsubmit=saveCostEdit;$('costEditCancelBtn').onclick=closeCostEdit;$('costEditCloseBtn').onclick=closeCostEdit;$('costEditModal').onclick=function(e){if(e.target===$('costEditModal'))closeCostEdit()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('costEditModal').className.indexOf('show')>-1)closeCostEdit()});['costEditQty','costEditAmount'].forEach(function(id){$(id).addEventListener('input',computeCostEditTotal)});
+  function renderRawMatEditRows(){var tbody=$('rmRows');if(!rawMaterials.length){tbody.innerHTML='<tr><td colspan="7" class="status-msg">RawMaterials sheet is empty or unavailable.</td></tr>';$('rmCount').textContent='0 materials';return}$('rmCount').textContent=rawMaterials.length+' material'+(rawMaterials.length===1?'':'s');tbody.innerHTML=rawMaterials.map(function(m,i){var sups=Array.isArray(m.suppliers)?m.suppliers:[];var chips=sups.length?sups.map(function(s){return '<span class="supplier-chip">'+esc(s)+'</span>'}).join(''):'<span class="rm-empty-sups">No suppliers yet</span>';var full=sups.length>=10;return '<tr data-row="'+m.rowIndex+'" data-idx="'+i+'"><td class="rm-num" data-mob-label="#">'+(i+1)+'</td><td data-mob-label="Description"><input class="rm-desc" type="text" value="'+esc(m.description)+'" aria-label="Description"></td><td class="rm-qty" data-mob-label="QTY">×'+(Number(m.qty)||0)+'</td><td data-mob-label="Unit Price"><input class="rm-price" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.unitPrice)||0).toFixed(2)+'" aria-label="Unit price"></td><td class="rm-amount" data-mob-label="Amount">'+money(m.amount)+'</td><td class="rm-sup-cell" data-mob-label="Suppliers"><div class="supplier-chips">'+chips+'</div><div class="supplier-add-row"><input class="rm-new-sup" type="text" placeholder="Add new supplier" '+(full?'disabled':'')+' aria-label="New supplier"><button type="button" class="btn btn-sm rm-add-sup" '+(full?'disabled':'')+'>＋ Add</button></div>'+(full?'<div class="rm-slot-note">All 10 supplier slots are full.</div>':'')+'</td><td data-mob-label=""><button type="button" class="btn primary btn-sm rm-save">Save row</button></td></tr>'}).join('');tbody.querySelectorAll('.rm-save').forEach(function(btn){btn.onclick=function(){saveRawMatRow(btn.closest('tr'))}});tbody.querySelectorAll('.rm-add-sup').forEach(function(btn){btn.onclick=function(){addRawMatSupplier(btn.closest('tr'))}});tbody.querySelectorAll('.rm-new-sup').forEach(function(inp){inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();addRawMatSupplier(inp.closest('tr'))}})})}
+  async function saveRawMatRow(tr){var rowIndex=Number(tr.dataset.row);var desc=tr.querySelector('.rm-desc').value.trim();var price=Number(tr.querySelector('.rm-price').value)||0;if(!desc){toast('Description cannot be empty.',true);return}var btn=tr.querySelector('.rm-save');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/raw-materials/'+rowIndex,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({description:desc,unitPrice:price})});toast('Row saved.');await loadRawMaterials();renderRawMatEditRows()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false;btn.textContent=oldText}}
+  async function addRawMatSupplier(tr){var rowIndex=Number(tr.dataset.row);var input=tr.querySelector('.rm-new-sup');var name=input.value.trim();if(!name){toast('Type a supplier name first.',true);input.focus();return}var btn=tr.querySelector('.rm-add-sup');btn.disabled=true;input.disabled=true;try{await api('/api/raw-materials/'+rowIndex+'/suppliers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({supplier:name})});toast('Supplier added.');input.value='';await loadRawMaterials();renderRawMatEditRows()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false;input.disabled=false;input.focus()}}
   function openDeleteOrderModal(){var sel=$('deleteOrderPicker');var orders=[];var seen={};costEntries.forEach(function(e){if(e.orderNumber&&!seen[e.orderNumber]){seen[e.orderNumber]=true;orders.push(e.orderNumber)}});orders.sort();var opts='<option value="">Select an order to delete…</option>';orders.forEach(function(o){var lines=costEntries.filter(function(e){return e.orderNumber===o});var total=lines.reduce(function(s,l){return s+(Number(l.total)||0)},0);opts+='<option value="'+esc(o)+'">'+esc(o)+' — '+lines.length+' line'+(lines.length===1?'':'s')+' — '+money(total)+'</option>'});sel.innerHTML=opts;sel.value='';$('deleteOrderConfirm').value='';$('deleteOrderSubmitBtn').disabled=true;$('deleteOrderInfo').textContent='Pick an order to see what will be removed.';$('deleteOrderModal').className='income-viewer show'}
   function closeDeleteOrderModal(){$('deleteOrderModal').className='income-viewer'}
   function updateDeleteOrderState(){var pick=$('deleteOrderPicker').value;var confirmText=$('deleteOrderConfirm').value;$('deleteOrderSubmitBtn').disabled=!(pick&&confirmText==='DELETE')}
