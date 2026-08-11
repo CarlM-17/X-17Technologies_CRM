@@ -9,6 +9,7 @@ const RECORDS_SHEET = process.env.GOOGLE_RECORDS_SHEET || 'CRM Records';
 const PRODUCTS_SHEET = process.env.GOOGLE_PRODUCTS_SHEET || 'Product List';
 const SOURCES_SHEET = process.env.GOOGLE_SOURCES_SHEET || 'Source';
 const RAW_MATERIALS_SHEET = process.env.GOOGLE_RAW_MATERIALS_SHEET || 'RawMaterials';
+const ROUTER_SHEET = process.env.GOOGLE_ROUTER_SHEET || 'Router';
 const COSTS_SHEET = process.env.GOOGLE_COSTS_SHEET || 'Cost & Expenses';
 const COST_HEADERS = ['ID', 'Date', 'Order Number', 'Description', 'QTY', 'Amount', 'Total', 'Created At'];
 const OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
@@ -469,6 +470,19 @@ app.get('/api/raw-materials', async (_req, res) => {
   } catch (error) { res.status(502).json({ error: error.message }); }
 });
 
+app.get('/api/routers', async (_req, res) => {
+  try {
+    const rows = await getValues(ROUTER_SHEET);
+    const items = rows.slice(1)
+      .map(r => ({
+        description: String(r?.[0] || '').trim(),
+        amount: Number(String(r?.[1] || '0').replace(/[^0-9.-]/g, '')) || 0
+      }))
+      .filter(r => r.description);
+    res.json({ items });
+  } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
 async function ensureCostsSheet() {
   const meta = await google('?fields=sheets.properties');
   let target = (meta.sheets || []).find(s => s.properties.title === COSTS_SHEET);
@@ -506,6 +520,40 @@ app.get('/api/costs', async (_req, res) => {
     const costedOrders = [...new Set(entries.map(e => e.orderNumber).filter(Boolean))];
     res.json({ entries, costedOrders });
   } catch (error) { res.status(502).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+app.patch('/api/costs/:id', async (req, res) => {
+  try {
+    await ensureCostsSheet();
+    const rows = await getValues(COSTS_SHEET);
+    const index = rows.findIndex((r, i) => i > 0 && String(r?.[0]) === req.params.id);
+    if (index < 0) return res.status(404).json({ error: 'Cost line not found.' });
+    const existing = rows[index];
+    const num = v => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+    const description = String(req.body?.description ?? existing[3] ?? '').trim() || String(existing[3] || '');
+    const qty = num(req.body?.qty ?? existing[4]);
+    const amount = num(req.body?.amount ?? existing[5]);
+    const total = +(qty * amount).toFixed(2);
+    const rowNumber = index + 1;
+    await google(`/values/${encodeURIComponent(`'${COSTS_SHEET}'!D${rowNumber}:G${rowNumber}`)}?valueInputOption=USER_ENTERED`, {
+      method: 'PUT', body: JSON.stringify({ values: [[description, qty, amount, total]] })
+    });
+    res.json({ ok: true, id: req.params.id, description, qty, amount, total });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+app.delete('/api/costs/:id', async (req, res) => {
+  try {
+    const sheetId = await ensureCostsSheet();
+    const rows = await getValues(COSTS_SHEET);
+    const index = rows.findIndex((r, i) => i > 0 && String(r?.[0]) === req.params.id);
+    if (index < 0) return res.status(404).json({ error: 'Cost line not found.' });
+    await google(':batchUpdate', {
+      method: 'POST',
+      body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: index, endIndex: index + 1 } } }] })
+    });
+    res.status(204).end();
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
 });
 
 app.post('/api/costs', async (req, res) => {
@@ -826,8 +874,11 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 .cost-empty{padding:22px;text-align:center;color:var(--muted);font-size:13px}
 .cost-item{display:grid;grid-template-columns:1fr 60px 110px 110px;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid #f1f5f9}
 .cost-item:last-child{border-bottom:none}
-.cost-item .desc{font-size:13px;color:var(--text);font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cost-item .desc{font-size:13px;color:var(--text);font-weight:500;min-width:0;line-height:1.35;word-break:break-word;overflow-wrap:anywhere}
 .cost-item .qty{text-align:center;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cost-item .qty-input{padding:7px 6px;border:1px solid var(--line);border-radius:6px;font-size:13px;text-align:center;font-variant-numeric:tabular-nums;background:#fff;width:100%}
+.cost-item .qty-input:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
+.cost-item-router{background:#fbfdff}
 .cost-item input.amount{padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:13px;text-align:right;font-variant-numeric:tabular-nums;background:#fff}
 .cost-item input.amount:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
 .cost-item .line-total{text-align:right;font-weight:700;color:var(--primary);font-size:13px;font-variant-numeric:tabular-nums}
@@ -926,6 +977,8 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
     <div class="cost-context" id="costContext">Pick an order to load the raw materials list.</div>
     <div class="upload-label" style="margin-top:14px"><span>RAW MATERIALS</span><small id="costItemsHint">Defaults from RawMaterials · amounts editable</small></div>
     <div class="cost-items" id="costItems"><div class="cost-empty">No materials loaded yet.</div></div>
+    <div class="upload-label" style="margin-top:14px"><span>OTHER EXPENSES · ROUTER</span><small>Defaults from Router · amounts editable · set QTY 0 to skip</small></div>
+    <div class="cost-items" id="costRouterItems"><div class="cost-empty">No router options loaded yet.</div></div>
     <div class="cost-total-row"><span>Total</span><strong id="costTotal">₱0.00</strong></div>
     <div class="form-actions">
       <button class="btn primary" id="costSaveBtn" type="submit" disabled>＋ Save cost entry</button>
@@ -938,7 +991,7 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
     <div class="panel-title"><h3>Cost &amp; Expenses</h3><span id="costCount">0 entries</span></div>
     <div class="table-scroll">
       <table class="cost-log-table">
-        <thead><tr><th>Date</th><th>Order #</th><th>Description</th><th>QTY</th><th>Amount</th><th>Total</th></tr></thead>
+        <thead><tr><th>Date</th><th>Order #</th><th>Description</th><th>QTY</th><th>Amount</th><th>Total</th><th>Actions</th></tr></thead>
         <tbody id="costLogRows"></tbody>
       </table>
       <div class="empty" id="costEmpty"><div class="empty-icon">⌁</div><strong>No cost entries yet</strong><div>Pick an order on the left, review the materials, then save.</div></div>
@@ -948,6 +1001,26 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 </section>
 </div>
 </main><div class="toast" id="toast" role="status" aria-live="polite"></div><div class="photo-viewer" id="photoViewer" role="dialog" aria-modal="true" aria-label="Customer picture"><button type="button" id="closeViewer" aria-label="Close picture">×</button><img id="viewerImage" alt="Customer picture"></div>
+<div class="income-viewer" id="costEditModal" role="dialog" aria-modal="true" aria-label="Edit cost line">
+  <div class="income-sheet">
+    <div class="income-head">
+      <div><div class="eyebrow" style="color:var(--primary)!important">Cost line</div><h3 id="costEditTitle">Edit Cost Line</h3><p id="costEditSubtitle">Update the quantity or amount.</p></div>
+      <button type="button" class="icon-btn" id="costEditCloseBtn" aria-label="Close">×</button>
+    </div>
+    <form id="costEditForm" class="income-body" autocomplete="off">
+      <div class="field"><label>DESCRIPTION</label><input id="costEditDesc" type="text" readonly></div>
+      <div class="form-grid">
+        <div class="field"><label for="costEditQty">QTY</label><input id="costEditQty" name="qty" type="number" step="1" min="0" inputmode="numeric" placeholder="0"></div>
+        <div class="field"><label for="costEditAmount">AMOUNT</label><input id="costEditAmount" name="amount" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00"></div>
+      </div>
+      <div class="field net-total-field"><label for="costEditTotal">LINE TOTAL <small>auto-calculated</small></label><input id="costEditTotal" type="number" step="0.01" readonly></div>
+      <div class="income-actions">
+        <button type="button" class="btn" id="costEditCancelBtn">Cancel</button>
+        <button type="submit" class="btn primary" id="costEditSaveBtn">✓ Save changes</button>
+      </div>
+    </form>
+  </div>
+</div>
 <div class="income-viewer" id="incomeModal" role="dialog" aria-modal="true" aria-label="Enter income details">
   <div class="income-sheet">
     <div class="income-head">
@@ -1019,19 +1092,32 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   async function saveIncome(e){e.preventDefault();if(!incomeCurrentId)return;var body={};new FormData(e.target).forEach(function(v,k){body[k]=v});var btn=$('incomeSaveBtn');btn.disabled=true;btn.textContent='Saving…';try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(body)});toast('Income details saved to Google Sheets.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false}}
   async function deleteIncome(){if(!incomeCurrentId)return;var r=records.find(function(v){return v.id===incomeCurrentId});if(!confirm('Delete the income details for '+(r?r.customerName:'this record')+'? The customer record itself will be kept.'))return;var btn=$('incomeDeleteBtn');btn.disabled=true;try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'DELETE'});toast('Income details cleared.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false}}
   $('incomeForm').onsubmit=saveIncome;$('incomeCancelBtn').onclick=closeIncomeModal;$('closeIncomeBtn').onclick=closeIncomeModal;$('incomeDeleteBtn').onclick=deleteIncome;$('incomeModal').onclick=function(e){if(e.target===$('incomeModal'))closeIncomeModal()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('incomeModal').className.indexOf('show')>-1)closeIncomeModal()});['incCommission','incAdvertising','incFreight','incWHT','incPaymentFee','incOrderProcessingFee'].forEach(function(id){$(id).addEventListener('input',computeIncomeNet)});$('incNetTotal').addEventListener('input',function(){incomeNetTouched=true});
-  var rawMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={};
+  var rawMaterials=[],routerMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={},costRouterAmounts={},costRouterQtys={};
   function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!=='view'+name.charAt(0).toUpperCase()+name.slice(1)});if(name==='costs'){loadCosts();refreshCostOrderOptions()}}
   document.querySelectorAll('.view-tab').forEach(function(b){b.onclick=function(){switchView(b.dataset.view)}});
   async function loadRawMaterials(){try{var d=await api('/api/raw-materials');rawMaterials=d.items||[]}catch(e){rawMaterials=[]}}
+  async function loadRouters(){try{var d=await api('/api/routers');routerMaterials=d.items||[]}catch(e){routerMaterials=[]}}
   async function loadCosts(){try{var d=await api('/api/costs');costEntries=d.entries||[];costedOrders=d.costedOrders||[];renderCostLog();refreshCostOrderOptions()}catch(e){costEntries=[];costedOrders=[];renderCostLog()}}
   function refreshCostOrderOptions(){var sel=$('costOrderNumber');if(!sel)return;var current=sel.value;var costed={};costedOrders.forEach(function(o){costed[o]=true});var seen={};var available=records.filter(function(r){if(!r.orderNumber||costed[r.orderNumber]||seen[r.orderNumber])return false;seen[r.orderNumber]=true;return true}).map(function(r){return {orderNumber:r.orderNumber,customer:r.customerName,product:r.description}});var opts='<option value="">Select an order…</option>'+available.map(function(o){var label=o.orderNumber+' · '+(o.customer||'—')+(o.product?' — '+o.product:'');return '<option value="'+esc(o.orderNumber)+'">'+esc(label)+'</option>'}).join('');sel.innerHTML=opts;if(current&&available.some(function(o){return o.orderNumber===current}))sel.value=current}
-  function populateCostItems(orderNumber){var container=$('costItems');if(!orderNumber||!rawMaterials.length){container.innerHTML='<div class="cost-empty">'+(rawMaterials.length?'Pick an order to load the raw materials list.':'RawMaterials sheet is empty or unavailable.')+'</div>';$('costSaveBtn').disabled=true;$('costContext').textContent='Pick an order to load the raw materials list.';updateCostTotal();return}var rec=records.find(function(r){return r.orderNumber===orderNumber});$('costContext').innerHTML=rec?'Order <strong>'+esc(rec.orderNumber)+'</strong> · '+esc(rec.customerName||'—')+' · '+esc(rec.description||'—')+' · Gross '+money(rec.price):'Order <strong>'+esc(orderNumber)+'</strong>';costLineAmounts={};container.innerHTML=rawMaterials.map(function(m,i){costLineAmounts[i]=Number(m.amount)||0;var lineTotal=(Number(m.qty)||0)*(Number(m.amount)||0);return '<div class="cost-item" data-index="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><div class="qty">×'+(Number(m.qty)||0)+'</div><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-index="'+i+'" aria-label="Amount for '+esc(m.description)+'"><div class="line-total" data-line-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');container.querySelectorAll('input.amount').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.index);costLineAmounts[idx]=Number(inp.value)||0;var lineTotal=(Number(rawMaterials[idx].qty)||0)*costLineAmounts[idx];var cell=container.querySelector('[data-line-total="'+idx+'"]');if(cell)cell.textContent=money(lineTotal);updateCostTotal()})});$('costSaveBtn').disabled=false;updateCostTotal()}
-  function updateCostTotal(){var total=0;rawMaterials.forEach(function(m,i){total+=(Number(m.qty)||0)*(Number(costLineAmounts[i])||0)});$('costTotal').textContent=money(total)}
-  function clearCostForm(){$('costForm').reset();$('costDate').value=today();$('costOrderNumber').value='';costLineAmounts={};populateCostItems('')}
-  async function saveCostEntry(e){e.preventDefault();var orderNumber=$('costOrderNumber').value;if(!orderNumber){toast('Pick an order first.',true);return}var items=rawMaterials.map(function(m,i){return {description:m.description,qty:Number(m.qty)||0,amount:Number(costLineAmounts[i])||0}});var btn=$('costSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({date:$('costDate').value||today(),orderNumber:orderNumber,items:items})});toast('Cost entry saved to Google Sheets.');clearCostForm();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
-  function renderCostLog(){var tbody=$('costLogRows');var grouped={};costEntries.forEach(function(e){(grouped[e.orderNumber]=grouped[e.orderNumber]||[]).push(e)});var orderKeys=Object.keys(grouped).sort();var html='';var totalEntries=0;orderKeys.forEach(function(order){var lines=grouped[order];var subtotal=lines.reduce(function(s,l){return s+(Number(l.total)||0)},0);var date=lines[0]&&lines[0].date||'';html+='<tr class="order-header"><td colspan="6" data-label="Order">Order '+esc(order)+' · '+esc(date)+' · '+money(subtotal)+' total</td></tr>';lines.forEach(function(l){totalEntries++;html+='<tr><td data-label="Date">'+esc(l.date)+'</td><td data-label="Order #" class="order-cell">'+esc(l.orderNumber)+'</td><td data-label="Description">'+esc(l.description)+'</td><td data-label="QTY">'+(Number(l.qty)||0)+'</td><td data-label="Amount">'+money(l.amount)+'</td><td data-label="Total">'+money(l.total)+'</td></tr>'})});tbody.innerHTML=html;$('costEmpty').className='empty'+(totalEntries?'':' show');$('costCount').textContent=totalEntries+' entr'+(totalEntries===1?'y':'ies')}
+  function populateCostItems(orderNumber){var rawWrap=$('costItems'),routerWrap=$('costRouterItems');if(!orderNumber){rawWrap.innerHTML='<div class="cost-empty">'+(rawMaterials.length?'Pick an order to load the raw materials list.':'RawMaterials sheet is empty or unavailable.')+'</div>';routerWrap.innerHTML='<div class="cost-empty">Pick an order to load router options.</div>';$('costSaveBtn').disabled=true;$('costContext').textContent='Pick an order to load the raw materials list.';costLineAmounts={};costRouterAmounts={};costRouterQtys={};updateCostTotal();return}var rec=records.find(function(r){return r.orderNumber===orderNumber});$('costContext').innerHTML=rec?'Order <strong>'+esc(rec.orderNumber)+'</strong> · '+esc(rec.customerName||'—')+' · '+esc(rec.description||'—')+' · Gross '+money(rec.price):'Order <strong>'+esc(orderNumber)+'</strong>';
+    costLineAmounts={};
+    if(rawMaterials.length){rawWrap.innerHTML=rawMaterials.map(function(m,i){costLineAmounts[i]=Number(m.amount)||0;var lineTotal=(Number(m.qty)||0)*(Number(m.amount)||0);return '<div class="cost-item" data-index="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><div class="qty">×'+(Number(m.qty)||0)+'</div><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-raw="'+i+'" aria-label="Amount for '+esc(m.description)+'"><div class="line-total" data-raw-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');rawWrap.querySelectorAll('input.amount[data-raw]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.raw);costLineAmounts[idx]=Number(inp.value)||0;var cell=rawWrap.querySelector('[data-raw-total="'+idx+'"]');if(cell)cell.textContent=money((Number(rawMaterials[idx].qty)||0)*costLineAmounts[idx]);updateCostTotal()})})}else{rawWrap.innerHTML='<div class="cost-empty">RawMaterials sheet is empty or unavailable.</div>'}
+    costRouterAmounts={};costRouterQtys={};
+    if(routerMaterials.length){routerWrap.innerHTML=routerMaterials.map(function(m,i){costRouterAmounts[i]=Number(m.amount)||0;costRouterQtys[i]=1;var lineTotal=1*(Number(m.amount)||0);return '<div class="cost-item cost-item-router" data-router="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><input class="qty-input" type="number" step="1" min="0" inputmode="numeric" value="1" data-router-qty="'+i+'" aria-label="QTY for '+esc(m.description)+'"><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-router-amt="'+i+'" aria-label="Amount for '+esc(m.description)+'"><div class="line-total" data-router-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');routerWrap.querySelectorAll('input[data-router-amt]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.routerAmt);costRouterAmounts[idx]=Number(inp.value)||0;var cell=routerWrap.querySelector('[data-router-total="'+idx+'"]');if(cell)cell.textContent=money((Number(costRouterQtys[idx])||0)*costRouterAmounts[idx]);updateCostTotal()})});routerWrap.querySelectorAll('input[data-router-qty]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.routerQty);costRouterQtys[idx]=Number(inp.value)||0;var cell=routerWrap.querySelector('[data-router-total="'+idx+'"]');if(cell)cell.textContent=money(costRouterQtys[idx]*(Number(costRouterAmounts[idx])||0));updateCostTotal()})})}else{routerWrap.innerHTML='<div class="cost-empty">Router sheet is empty or unavailable.</div>'}
+    $('costSaveBtn').disabled=false;updateCostTotal()}
+  function updateCostTotal(){var total=0;rawMaterials.forEach(function(m,i){total+=(Number(m.qty)||0)*(Number(costLineAmounts[i])||0)});routerMaterials.forEach(function(m,i){total+=(Number(costRouterQtys[i])||0)*(Number(costRouterAmounts[i])||0)});$('costTotal').textContent=money(total)}
+  function clearCostForm(){$('costForm').reset();$('costDate').value=today();$('costOrderNumber').value='';costLineAmounts={};costRouterAmounts={};costRouterQtys={};populateCostItems('')}
+  async function saveCostEntry(e){e.preventDefault();var orderNumber=$('costOrderNumber').value;if(!orderNumber){toast('Pick an order first.',true);return}var items=[];rawMaterials.forEach(function(m,i){items.push({description:m.description,qty:Number(m.qty)||0,amount:Number(costLineAmounts[i])||0})});routerMaterials.forEach(function(m,i){var qty=Number(costRouterQtys[i])||0;if(qty>0)items.push({description:m.description,qty:qty,amount:Number(costRouterAmounts[i])||0})});var btn=$('costSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({date:$('costDate').value||today(),orderNumber:orderNumber,items:items})});toast('Cost entry saved to Google Sheets.');clearCostForm();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
+  function renderCostLog(){var tbody=$('costLogRows');var grouped={};costEntries.forEach(function(e){(grouped[e.orderNumber]=grouped[e.orderNumber]||[]).push(e)});var orderKeys=Object.keys(grouped).sort();var html='';var totalEntries=0;orderKeys.forEach(function(order){var lines=grouped[order];var subtotal=lines.reduce(function(s,l){return s+(Number(l.total)||0)},0);var date=lines[0]&&lines[0].date||'';html+='<tr class="order-header"><td colspan="7" data-label="Order">Order '+esc(order)+' · '+esc(date)+' · '+money(subtotal)+' total</td></tr>';lines.forEach(function(l){totalEntries++;html+='<tr data-cost-id="'+esc(l.id)+'"><td data-label="Date">'+esc(l.date)+'</td><td data-label="Order #" class="order-cell">'+esc(l.orderNumber)+'</td><td data-label="Description">'+esc(l.description)+'</td><td data-label="QTY">'+(Number(l.qty)||0)+'</td><td data-label="Amount">'+money(l.amount)+'</td><td data-label="Total">'+money(l.total)+'</td><td data-label="Actions"><div class="row-actions"><button class="icon-btn cost-edit" aria-label="Edit line" title="Edit">✎</button><button class="icon-btn delete cost-del" aria-label="Delete line" title="Delete">×</button></div></td></tr>'})});tbody.innerHTML=html;$('costEmpty').className='empty'+(totalEntries?'':' show');$('costCount').textContent=totalEntries+' entr'+(totalEntries===1?'y':'ies');tbody.querySelectorAll('.cost-edit').forEach(function(b){b.onclick=function(){openCostEdit(b.closest('tr').dataset.costId)}});tbody.querySelectorAll('.cost-del').forEach(function(b){b.onclick=function(){deleteCostLine(b.closest('tr').dataset.costId)}})}
+  var costEditingId='';
+  function computeCostEditTotal(){var q=Number($('costEditQty').value)||0,a=Number($('costEditAmount').value)||0;$('costEditTotal').value=(Math.round(q*a*100)/100).toFixed(2)}
+  function openCostEdit(id){var line=costEntries.find(function(l){return l.id===id});if(!line)return;costEditingId=id;$('costEditDesc').value=line.description||'';$('costEditQty').value=Number(line.qty)||0;$('costEditAmount').value=Number(line.amount)||0;computeCostEditTotal();$('costEditModal').className='income-viewer show'}
+  function closeCostEdit(){$('costEditModal').className='income-viewer';costEditingId=''}
+  async function saveCostEdit(e){e.preventDefault();if(!costEditingId)return;var btn=$('costEditSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs/'+encodeURIComponent(costEditingId),{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({qty:$('costEditQty').value,amount:$('costEditAmount').value})});toast('Cost line updated.');closeCostEdit();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
+  async function deleteCostLine(id){var line=costEntries.find(function(l){return l.id===id});if(!line)return;if(!confirm('Delete this cost line? \n\n'+(line.description||'')+' — '+money(line.total)))return;try{await api('/api/costs/'+encodeURIComponent(id),{method:'DELETE'});toast('Cost line deleted.');await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}}
+  $('costEditForm').onsubmit=saveCostEdit;$('costEditCancelBtn').onclick=closeCostEdit;$('costEditCloseBtn').onclick=closeCostEdit;$('costEditModal').onclick=function(e){if(e.target===$('costEditModal'))closeCostEdit()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('costEditModal').className.indexOf('show')>-1)closeCostEdit()});['costEditQty','costEditAmount'].forEach(function(id){$(id).addEventListener('input',computeCostEditTotal)});
   $('costOrderNumber').addEventListener('change',function(){populateCostItems(this.value)});$('costForm').onsubmit=saveCostEntry;$('costResetBtn').onclick=clearCostForm;$('costDate').value=today();
-  setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials()]).then(loadRecords).then(refreshCostOrderOptions).catch(function(e){toast(e.message,true);loadRecords()});
+  setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials(),loadRouters()]).then(loadRecords).then(refreshCostOrderOptions).catch(function(e){toast(e.message,true);loadRecords()});
 })();
 </script></body></html>`;
 
