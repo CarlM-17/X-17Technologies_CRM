@@ -533,12 +533,30 @@ app.patch('/api/costs/:id', async (req, res) => {
     const description = String(req.body?.description ?? existing[3] ?? '').trim() || String(existing[3] || '');
     const qty = num(req.body?.qty ?? existing[4]);
     const amount = num(req.body?.amount ?? existing[5]);
-    const total = +(qty * amount).toFixed(2);
+    const total = +Number(amount).toFixed(2);
     const rowNumber = index + 1;
     await google(`/values/${encodeURIComponent(`'${COSTS_SHEET}'!D${rowNumber}:G${rowNumber}`)}?valueInputOption=USER_ENTERED`, {
       method: 'PUT', body: JSON.stringify({ values: [[description, qty, amount, total]] })
     });
     res.json({ ok: true, id: req.params.id, description, qty, amount, total });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+app.delete('/api/costs/order/:orderNumber', async (req, res) => {
+  try {
+    const sheetId = await ensureCostsSheet();
+    const rows = await getValues(COSTS_SHEET);
+    const target = String(req.params.orderNumber);
+    const rowIndexes = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i]?.[2] || '') === target) rowIndexes.push(i);
+    }
+    if (!rowIndexes.length) return res.status(404).json({ error: 'No cost lines found for that order.' });
+    const requests = rowIndexes.slice().sort((a, b) => b - a).map(i => ({
+      deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: i, endIndex: i + 1 } }
+    }));
+    await google(':batchUpdate', { method: 'POST', body: JSON.stringify({ requests }) });
+    res.json({ ok: true, deleted: rowIndexes.length });
   } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
 });
 
@@ -575,7 +593,7 @@ app.post('/api/costs', async (req, res) => {
         const qty = num(it?.qty);
         const amount = num(it?.amount);
         if (!description) return null;
-        return [crypto.randomUUID(), date, orderNumber, description, qty, amount, +(qty * amount).toFixed(2), now];
+        return [crypto.randomUUID(), date, orderNumber, description, qty, amount, +Number(amount).toFixed(2), now];
       })
       .filter(Boolean);
     if (!rows.length) throw Object.assign(new Error('At least one line item is required.'), { status: 400 });
@@ -867,6 +885,15 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   .view-tab{padding:11px 12px;font-size:13px}
 }
 
+/* Cost log toolbar */
+.cost-log-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.cost-log-tools .btn.danger.btn-sm{padding:6px 12px;min-height:32px;font-size:12px;font-weight:600}
+/* Danger modal accents */
+.income-sheet.danger-sheet:before{background:linear-gradient(90deg,var(--red),#dc2626,#7f1d1d)!important}
+.danger-context{background:linear-gradient(135deg,#fef2f2,#fee2e2);border:1px solid #fecaca;border-radius:12px;padding:12px 14px;margin:2px 0 14px;font-size:13px;color:#7f1d1d;line-height:1.5}
+.danger-context strong{color:#991b1b;font-weight:700}
+#deleteOrderConfirm{letter-spacing:.15em;font-weight:700;text-transform:uppercase;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
 /* Cost & Expenses view — landscape */
 .cost-workspace{grid-template-columns:1fr!important;gap:18px}
 .cost-form-panel{width:100%!important;max-width:none!important}
@@ -1042,7 +1069,7 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 </aside>
 <div class="content">
   <section class="panel table-panel">
-    <div class="panel-title"><h3>Cost &amp; Expenses</h3><span id="costCount">0 entries</span></div>
+    <div class="panel-title"><h3>Cost &amp; Expenses</h3><div class="cost-log-tools"><span id="costCount">0 entries</span><button type="button" class="btn danger btn-sm" id="deleteOrderBtn">× Delete Order</button></div></div>
     <div class="table-scroll">
       <table class="cost-log-table">
         <thead><tr><th>Date</th><th>Order #</th><th>Description</th><th>QTY</th><th>Amount</th><th>Total</th><th>Actions</th></tr></thead>
@@ -1055,6 +1082,23 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 </section>
 </div>
 </main><div class="toast" id="toast" role="status" aria-live="polite"></div><div class="photo-viewer" id="photoViewer" role="dialog" aria-modal="true" aria-label="Customer picture"><button type="button" id="closeViewer" aria-label="Close picture">×</button><img id="viewerImage" alt="Customer picture"></div>
+<div class="income-viewer" id="deleteOrderModal" role="dialog" aria-modal="true" aria-label="Delete order cost lines">
+  <div class="income-sheet danger-sheet">
+    <div class="income-head">
+      <div><div class="eyebrow" style="color:var(--red)!important">Danger zone</div><h3>Delete Order from Cost &amp; Expenses</h3><p>Removes every cost line matching the selected Order #. This cannot be undone.</p></div>
+      <button type="button" class="icon-btn" id="deleteOrderCloseBtn" aria-label="Close">×</button>
+    </div>
+    <form id="deleteOrderForm" class="income-body" autocomplete="off">
+      <div class="field"><label for="deleteOrderPicker">ORDER # <span class="req" style="color:var(--red)">*</span></label><select id="deleteOrderPicker" required><option value="">Select an order to delete…</option></select></div>
+      <div class="danger-context" id="deleteOrderInfo">Pick an order to see what will be removed.</div>
+      <div class="field"><label for="deleteOrderConfirm">TYPE <strong style="color:var(--red)">DELETE</strong> TO CONFIRM</label><input id="deleteOrderConfirm" type="text" placeholder="DELETE" autocomplete="off" spellcheck="false"></div>
+      <div class="income-actions">
+        <button type="button" class="btn" id="deleteOrderCancelBtn">Cancel</button>
+        <button type="submit" class="btn danger" id="deleteOrderSubmitBtn" disabled>× Delete all lines</button>
+      </div>
+    </form>
+  </div>
+</div>
 <div class="income-viewer" id="costEditModal" role="dialog" aria-modal="true" aria-label="Edit cost line">
   <div class="income-sheet">
     <div class="income-head">
@@ -1160,17 +1204,22 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
     if(rawMaterials.length){rawWrap.innerHTML=rawMaterials.map(function(m,i){costLineAmounts[i]=Number(m.amount)||0;var lineTotal=(Number(m.qty)||0)*(Number(m.amount)||0);return '<div class="cost-item" data-index="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><div class="qty">×'+(Number(m.qty)||0)+'</div><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-raw="'+i+'" aria-label="Amount for '+esc(m.description)+'"><div class="line-total" data-raw-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');rawWrap.querySelectorAll('input.amount[data-raw]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.raw);costLineAmounts[idx]=Number(inp.value)||0;var cell=rawWrap.querySelector('[data-raw-total="'+idx+'"]');if(cell)cell.textContent=money((Number(rawMaterials[idx].qty)||0)*costLineAmounts[idx]);updateCostTotal()})})}else{rawWrap.innerHTML='<div class="cost-empty">RawMaterials sheet is empty or unavailable.</div>'}
     selectedRouters=[];renderSelectedRouters();
     $('costSaveBtn').disabled=false;updateCostTotal()}
-  function updateCostTotal(){var total=0;rawMaterials.forEach(function(m,i){total+=(Number(m.qty)||0)*(Number(costLineAmounts[i])||0)});selectedRouters.forEach(function(s){total+=(Number(s.qty)||0)*(Number(s.amount)||0)});$('costTotal').textContent=money(total)}
+  function updateCostTotal(){var total=0;rawMaterials.forEach(function(m,i){total+=Number(costLineAmounts[i])||0});selectedRouters.forEach(function(s){total+=Number(s.amount)||0});$('costTotal').textContent=money(total)}
   function clearCostForm(){$('costForm').reset();$('costDate').value=today();$('costOrderNumber').value='';costLineAmounts={};selectedRouters=[];populateCostItems('')}
   async function saveCostEntry(e){e.preventDefault();var orderNumber=$('costOrderNumber').value;if(!orderNumber){toast('Pick an order first.',true);return}var items=[];rawMaterials.forEach(function(m,i){items.push({description:m.description,qty:Number(m.qty)||0,amount:Number(costLineAmounts[i])||0})});selectedRouters.forEach(function(s){var m=routerMaterials[s.idx];if(!m)return;var qty=Number(s.qty)||0;if(qty>0)items.push({description:m.description,qty:qty,amount:Number(s.amount)||0})});var btn=$('costSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({date:$('costDate').value||today(),orderNumber:orderNumber,items:items})});toast('Cost entry saved to Google Sheets.');clearCostForm();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
   function renderCostLog(){var tbody=$('costLogRows');var grouped={};costEntries.forEach(function(e){(grouped[e.orderNumber]=grouped[e.orderNumber]||[]).push(e)});var orderKeys=Object.keys(grouped).sort();var html='';var totalEntries=0;orderKeys.forEach(function(order){var lines=grouped[order];var subtotal=lines.reduce(function(s,l){return s+(Number(l.total)||0)},0);var date=lines[0]&&lines[0].date||'';html+='<tr class="order-header"><td colspan="7" data-label="Order">Order '+esc(order)+' · '+esc(date)+' · '+money(subtotal)+' total</td></tr>';lines.forEach(function(l){totalEntries++;html+='<tr data-cost-id="'+esc(l.id)+'"><td data-label="Date">'+esc(l.date)+'</td><td data-label="Order #" class="order-cell">'+esc(l.orderNumber)+'</td><td data-label="Description">'+esc(l.description)+'</td><td data-label="QTY">'+(Number(l.qty)||0)+'</td><td data-label="Amount">'+money(l.amount)+'</td><td data-label="Total">'+money(l.total)+'</td><td data-label="Actions"><div class="row-actions"><button class="icon-btn cost-edit" aria-label="Edit line" title="Edit">✎</button><button class="icon-btn delete cost-del" aria-label="Delete line" title="Delete">×</button></div></td></tr>'})});tbody.innerHTML=html;$('costEmpty').className='empty'+(totalEntries?'':' show');$('costCount').textContent=totalEntries+' entr'+(totalEntries===1?'y':'ies');tbody.querySelectorAll('.cost-edit').forEach(function(b){b.onclick=function(){openCostEdit(b.closest('tr').dataset.costId)}});tbody.querySelectorAll('.cost-del').forEach(function(b){b.onclick=function(){deleteCostLine(b.closest('tr').dataset.costId)}})}
   var costEditingId='';
-  function computeCostEditTotal(){var q=Number($('costEditQty').value)||0,a=Number($('costEditAmount').value)||0;$('costEditTotal').value=(Math.round(q*a*100)/100).toFixed(2)}
+  function computeCostEditTotal(){var a=Number($('costEditAmount').value)||0;$('costEditTotal').value=(Math.round(a*100)/100).toFixed(2)}
   function openCostEdit(id){var line=costEntries.find(function(l){return l.id===id});if(!line)return;costEditingId=id;$('costEditDesc').value=line.description||'';$('costEditQty').value=Number(line.qty)||0;$('costEditAmount').value=Number(line.amount)||0;computeCostEditTotal();$('costEditModal').className='income-viewer show'}
   function closeCostEdit(){$('costEditModal').className='income-viewer';costEditingId=''}
   async function saveCostEdit(e){e.preventDefault();if(!costEditingId)return;var btn=$('costEditSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs/'+encodeURIComponent(costEditingId),{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({qty:$('costEditQty').value,amount:$('costEditAmount').value})});toast('Cost line updated.');closeCostEdit();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
   async function deleteCostLine(id){var line=costEntries.find(function(l){return l.id===id});if(!line)return;if(!confirm('Delete this cost line? \n\n'+(line.description||'')+' — '+money(line.total)))return;try{await api('/api/costs/'+encodeURIComponent(id),{method:'DELETE'});toast('Cost line deleted.');await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}}
   $('costEditForm').onsubmit=saveCostEdit;$('costEditCancelBtn').onclick=closeCostEdit;$('costEditCloseBtn').onclick=closeCostEdit;$('costEditModal').onclick=function(e){if(e.target===$('costEditModal'))closeCostEdit()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('costEditModal').className.indexOf('show')>-1)closeCostEdit()});['costEditQty','costEditAmount'].forEach(function(id){$(id).addEventListener('input',computeCostEditTotal)});
+  function openDeleteOrderModal(){var sel=$('deleteOrderPicker');var orders=[];var seen={};costEntries.forEach(function(e){if(e.orderNumber&&!seen[e.orderNumber]){seen[e.orderNumber]=true;orders.push(e.orderNumber)}});orders.sort();var opts='<option value="">Select an order to delete…</option>';orders.forEach(function(o){var lines=costEntries.filter(function(e){return e.orderNumber===o});var total=lines.reduce(function(s,l){return s+(Number(l.total)||0)},0);opts+='<option value="'+esc(o)+'">'+esc(o)+' — '+lines.length+' line'+(lines.length===1?'':'s')+' — '+money(total)+'</option>'});sel.innerHTML=opts;sel.value='';$('deleteOrderConfirm').value='';$('deleteOrderSubmitBtn').disabled=true;$('deleteOrderInfo').textContent='Pick an order to see what will be removed.';$('deleteOrderModal').className='income-viewer show'}
+  function closeDeleteOrderModal(){$('deleteOrderModal').className='income-viewer'}
+  function updateDeleteOrderState(){var pick=$('deleteOrderPicker').value;var confirmText=$('deleteOrderConfirm').value;$('deleteOrderSubmitBtn').disabled=!(pick&&confirmText==='DELETE')}
+  async function submitDeleteOrder(e){e.preventDefault();var order=$('deleteOrderPicker').value;if(!order||$('deleteOrderConfirm').value!=='DELETE')return;var btn=$('deleteOrderSubmitBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Deleting…';try{var res=await api('/api/costs/order/'+encodeURIComponent(order),{method:'DELETE'});toast((res.deleted||'All')+' cost line'+(res.deleted===1?'':'s')+' deleted for order '+order+'.');closeDeleteOrderModal();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false;btn.textContent=oldText}}
+  $('deleteOrderBtn').onclick=openDeleteOrderModal;$('deleteOrderForm').onsubmit=submitDeleteOrder;$('deleteOrderCancelBtn').onclick=closeDeleteOrderModal;$('deleteOrderCloseBtn').onclick=closeDeleteOrderModal;$('deleteOrderModal').onclick=function(e){if(e.target===$('deleteOrderModal'))closeDeleteOrderModal()};$('deleteOrderPicker').addEventListener('change',function(){var o=this.value;if(!o){$('deleteOrderInfo').textContent='Pick an order to see what will be removed.'}else{var lines=costEntries.filter(function(e){return e.orderNumber===o});var total=lines.reduce(function(s,l){return s+(Number(l.total)||0)},0);$('deleteOrderInfo').innerHTML='Order <strong>'+esc(o)+'</strong> · <strong>'+lines.length+'</strong> line'+(lines.length===1?'':'s')+' · <strong>'+money(total)+'</strong> total will be permanently removed.'}updateDeleteOrderState()});$('deleteOrderConfirm').addEventListener('input',updateDeleteOrderState);document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('deleteOrderModal').className.indexOf('show')>-1)closeDeleteOrderModal()});
   $('costOrderNumber').addEventListener('change',function(){populateCostItems(this.value)});$('costForm').onsubmit=saveCostEntry;$('costResetBtn').onclick=clearCostForm;$('costDate').value=today();
   $('costRouterPicker').addEventListener('change',function(){var v=this.value;if(v===''||v===null)return;var idx=Number(v);var m=routerMaterials[idx];if(!m)return;selectedRouters.push({idx:idx,qty:1,amount:Number(m.amount)||0});renderSelectedRouters()});
   setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials(),loadRouters()]).then(loadRecords).then(refreshCostOrderOptions).catch(function(e){toast(e.message,true);loadRecords()});
