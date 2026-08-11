@@ -8,6 +8,9 @@ const SPREADSHEET_ID = process.env.GOOGLE_SHEET_ID || '1Fzjz9uT5Mus0sVNUPGNurUaZ
 const RECORDS_SHEET = process.env.GOOGLE_RECORDS_SHEET || 'CRM Records';
 const PRODUCTS_SHEET = process.env.GOOGLE_PRODUCTS_SHEET || 'Product List';
 const SOURCES_SHEET = process.env.GOOGLE_SOURCES_SHEET || 'Source';
+const RAW_MATERIALS_SHEET = process.env.GOOGLE_RAW_MATERIALS_SHEET || 'RawMaterials';
+const COSTS_SHEET = process.env.GOOGLE_COSTS_SHEET || 'Cost & Expenses';
+const COST_HEADERS = ['ID', 'Date', 'Order Number', 'Description', 'QTY', 'Amount', 'Total', 'Created At'];
 const OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
 const OAUTH_CLIENT_SECRET = process.env.GOOGLE_OAUTH_CLIENT_SECRET || '';
 const OAUTH_REFRESH_TOKEN = process.env.GOOGLE_OAUTH_REFRESH_TOKEN || '';
@@ -452,6 +455,90 @@ app.get('/api/sources', async (_req, res) => {
   } catch (error) { res.status(502).json({ error: error.message }); }
 });
 
+app.get('/api/raw-materials', async (_req, res) => {
+  try {
+    const rows = await getValues(RAW_MATERIALS_SHEET);
+    const items = rows.slice(1)
+      .map(r => ({
+        description: String(r?.[0] || '').trim(),
+        qty: Number(String(r?.[1] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        amount: Number(String(r?.[4] || '0').replace(/[^0-9.-]/g, '')) || 0
+      }))
+      .filter(r => r.description);
+    res.json({ items });
+  } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
+async function ensureCostsSheet() {
+  const meta = await google('?fields=sheets.properties');
+  let target = (meta.sheets || []).find(s => s.properties.title === COSTS_SHEET);
+  if (!target) {
+    const created = await google(':batchUpdate', {
+      method: 'POST', body: JSON.stringify({ requests: [{ addSheet: { properties: { title: COSTS_SHEET, gridProperties: { frozenRowCount: 1 } } } }] })
+    });
+    target = { properties: created.replies[0].addSheet.properties };
+  }
+  const values = await google(`/values/${encodeURIComponent(`'${COSTS_SHEET}'!A1:H1`)}`);
+  if (!values.values?.length || values.values[0].length < COST_HEADERS.length) {
+    await google(`/values/${encodeURIComponent(`'${COSTS_SHEET}'!A1:H1`)}?valueInputOption=RAW`, {
+      method: 'PUT', body: JSON.stringify({ values: [COST_HEADERS] })
+    });
+  }
+  return target.properties.sheetId;
+}
+
+app.get('/api/costs', async (_req, res) => {
+  try {
+    await ensureCostsSheet();
+    const rows = await getValues(COSTS_SHEET);
+    const entries = rows.slice(1)
+      .filter(r => r && (r[0] || r[2] || r[3]))
+      .map(r => ({
+        id: String(r[0] || ''),
+        date: String(r[1] || ''),
+        orderNumber: String(r[2] || ''),
+        description: String(r[3] || ''),
+        qty: Number(String(r[4] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        amount: Number(String(r[5] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        total: Number(String(r[6] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        createdAt: String(r[7] || '')
+      }));
+    const costedOrders = [...new Set(entries.map(e => e.orderNumber).filter(Boolean))];
+    res.json({ entries, costedOrders });
+  } catch (error) { res.status(502).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+app.post('/api/costs', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const orderNumber = String(body.orderNumber || '').trim();
+    if (!orderNumber) throw Object.assign(new Error('Order Number is required.'), { status: 400 });
+    const items = Array.isArray(body.items) ? body.items : [];
+    if (!items.length) throw Object.assign(new Error('At least one line item is required.'), { status: 400 });
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : new Date().toISOString().slice(0, 10);
+    const num = v => {
+      const n = Number(String(v ?? '').replace(/[^0-9.-]/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    };
+    const now = new Date().toISOString();
+    const rows = items
+      .map(it => {
+        const description = String(it?.description || '').trim();
+        const qty = num(it?.qty);
+        const amount = num(it?.amount);
+        if (!description) return null;
+        return [crypto.randomUUID(), date, orderNumber, description, qty, amount, +(qty * amount).toFixed(2), now];
+      })
+      .filter(Boolean);
+    if (!rows.length) throw Object.assign(new Error('At least one line item is required.'), { status: 400 });
+    await ensureCostsSheet();
+    await google(`/values/${encodeURIComponent(`'${COSTS_SHEET}'!A:H`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+      method: 'POST', body: JSON.stringify({ values: rows })
+    });
+    res.status(201).json({ ok: true, orderNumber, count: rows.length });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
 app.get('/api/records', async (_req, res) => {
   try {
     const rows = await getValues(RECORDS_SHEET);
@@ -721,6 +808,50 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   .upload-grid{gap:8px!important}
 }
 
+/* View tabs */
+.view-tabs{display:flex;gap:6px;padding:6px;margin:0 0 18px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);max-width:520px}
+.view-tab{flex:1;padding:11px 18px;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;font-weight:600;font-size:14px;transition:.15s;font-family:inherit;letter-spacing:-.01em}
+.view-tab:hover{color:var(--primary);background:#f8fafc}
+.view-tab.active{background:linear-gradient(135deg,var(--primary),#1e3a8a);color:#fff;box-shadow:0 4px 12px rgba(11,37,69,0.2)}
+.view[hidden]{display:none!important}
+@media(max-width:800px){
+  .view-tabs{margin:0 14px 14px;border-radius:12px;max-width:none}
+  .view-tab{padding:11px 12px;font-size:13px}
+}
+
+/* Cost & Expenses view */
+.cost-context{background:linear-gradient(135deg,#f8fafc,#eff6ff);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:8px;font-size:12px;color:var(--muted);line-height:1.5}
+.cost-context strong{color:var(--primary)}
+.cost-items{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+.cost-empty{padding:22px;text-align:center;color:var(--muted);font-size:13px}
+.cost-item{display:grid;grid-template-columns:1fr 60px 110px 110px;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid #f1f5f9}
+.cost-item:last-child{border-bottom:none}
+.cost-item .desc{font-size:13px;color:var(--text);font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cost-item .qty{text-align:center;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.cost-item input.amount{padding:7px 9px;border:1px solid var(--line);border-radius:6px;font-size:13px;text-align:right;font-variant-numeric:tabular-nums;background:#fff}
+.cost-item input.amount:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
+.cost-item .line-total{text-align:right;font-weight:700;color:var(--primary);font-size:13px;font-variant-numeric:tabular-nums}
+.cost-total-row{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;margin-top:12px;background:linear-gradient(135deg,#ecfdf5,#d1fae5);border:1px solid #a7f3d0;border-radius:12px;font-weight:700}
+.cost-total-row span{color:#065f46;text-transform:uppercase;letter-spacing:.05em;font-size:12px}
+.cost-total-row strong{font-size:20px;color:#065f46;font-variant-numeric:tabular-nums}
+.cost-log-table{width:100%;min-width:640px}
+.cost-log-table td.order-cell{white-space:nowrap}
+.cost-log-table tr.order-header td{background:linear-gradient(90deg,#eff6ff,transparent);color:var(--primary);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.04em;padding:8px 14px}
+
+@media(max-width:800px){
+  .cost-item{grid-template-columns:1fr 46px 94px 94px;gap:6px;padding:9px 10px}
+  .cost-item .desc{font-size:12px;white-space:normal}
+  .cost-item input.amount{padding:8px;font-size:14px}
+  .cost-log-table{min-width:0}
+  .cost-log-table thead{display:none}
+  .cost-log-table tbody,.cost-log-table tr,.cost-log-table td{display:block}
+  .cost-log-table tr{margin:8px 8px 12px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:var(--shadow);padding:4px 0}
+  .cost-log-table td{padding:9px 14px;border-bottom:1px solid #f1f5f9;display:grid;grid-template-columns:100px 1fr;gap:10px}
+  .cost-log-table td:before{content:attr(data-label);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+  .cost-log-table tr.order-header td{grid-template-columns:1fr}
+  .cost-log-table tr.order-header td:before{content:""}
+}
+
 /* Order number tag */
 .order-tag{display:inline-block;padding:3px 10px;border-radius:8px;background:linear-gradient(135deg,#eff6ff,#dbeafe);color:var(--primary);font-weight:700;font-size:12px;letter-spacing:.02em;font-variant-numeric:tabular-nums;border:1px solid #bfdbfe}
 
@@ -775,11 +906,48 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 <header class="topbar"><div class="brand"><img class="logo" src="/logo.png" alt="X-17 Technologies logo"><div><h1>X-17 Technologies CRM</h1><p>Sales intelligence command center</p></div></div><div class="top-actions"><div class="status"><i class="dot" id="statusDot"></i><span id="statusText">Checking connection</span></div><a class="btn" id="sheetLink" target="_blank" rel="noopener"><span>↗</span><span class="sheet-label">Open Google Sheet</span></a></div></header>
 <section class="hero"><div class="hero-main"><div class="eyebrow">Customer intelligence • Live operations</div><h2>Turn every sale into a smarter customer relationship.</h2><p>Capture customer records, monitor product performance, and keep your team synchronized with one clear, mobile-ready workspace.</p></div><div class="sync-card"><div class="sync-head"><div><div class="eyebrow">Data uplink</div><strong>Google Sheets</strong></div><div class="sync-orb"></div></div><p id="syncCopy">Connecting to your workspace…</p><div class="sync-meta"><span id="syncTime">Not synced yet</span><span id="recordSheet">CRM Records</span></div></div></section>
 <section class="metrics"><article class="metric"><div class="metric-top"><span>Total records</span><i class="metric-icon">▦</i></div><div class="metric-value" id="mRecords">0</div><div class="metric-foot"><span class="positive">Live</span> customer database</div></article><article class="metric"><div class="metric-top"><span>Total sales</span><i class="metric-icon">₱</i></div><div class="metric-value" id="mSales">₱0</div><div class="metric-foot">Across visible records</div></article><article class="metric"><div class="metric-top"><span>This month</span><i class="metric-icon">◫</i></div><div class="metric-value" id="mMonth">0</div><div class="metric-foot">New customer entries</div></article><article class="metric"><div class="metric-top"><span>Top product</span><i class="metric-icon">◇</i></div><div class="metric-value" id="mTop" style="font-size:16px;line-height:1.35">—</div><div class="metric-foot">By number of records</div></article></section>
+<nav class="view-tabs" role="tablist"><button class="view-tab active" data-view="records" role="tab" aria-selected="true">Customer Records</button><button class="view-tab" data-view="costs" role="tab" aria-selected="false">Cost &amp; Expenses</button></nav>
+<div class="view active" id="viewRecords">
 <section class="workspace">
 <aside class="panel form-panel"><div class="panel-title"><h3 id="formTitle">Add customer record</h3><span>Secure entry</span></div><form class="form-body" id="recordForm"><div class="editing" id="editingBanner"><span>Editing selected record</span><button type="button" class="icon-btn" id="cancelEdit" aria-label="Cancel edit">×</button></div><div class="form-grid"><div class="field"><label for="date">DATE <span class="req">*</span></label><input id="date" name="date" type="date" required></div><div class="field"><label for="price">PRICE (PHP) <span class="req">*</span></label><input id="price" name="price" type="number" min="0" step="0.01" placeholder="0.00" required></div></div><div class="field"><label for="description">DESCRIPTION / PRODUCT <span class="req">*</span></label><select id="description" name="description" required><option value="">Loading Product List…</option></select></div><div class="field"><label for="customerName">CUSTOMER NAME <span class="req">*</span></label><input id="customerName" name="customerName" autocomplete="name" placeholder="Full name" required></div><div class="field"><label for="phoneNumber">PHONE NUMBER</label><input id="phoneNumber" name="phoneNumber" type="tel" autocomplete="tel" inputmode="tel" placeholder="e.g. 0917 123 4567"></div><div class="field"><label for="address">ADDRESS</label><input id="address" name="address" autocomplete="street-address" placeholder="Complete address"></div><div class="field"><label for="orderNumber">ORDER NUMBER</label><input id="orderNumber" name="orderNumber" placeholder="e.g. INV-1024"></div><div class="field"><label for="licenseNumber">LICENSE NUMBER</label><input id="licenseNumber" name="licenseNumber" placeholder="e.g. NTC / business license"></div><div class="field"><label for="source">SOURCE</label><select id="source" name="source"><option value="">Loading Source List…</option></select></div><div class="field"><label for="note">NOTE</label><textarea id="note" name="note" maxlength="1000" placeholder="Add context, follow-up, or special instructions"></textarea></div><div class="form-actions"><button class="btn primary" id="saveBtn" type="submit">＋ Add record</button><button class="btn" id="resetBtn" type="button">Clear</button><button class="btn danger" id="deleteBtn" type="button" disabled>Delete</button></div></form></aside>
 <div class="content"><div class="analytics"><article class="panel chart"><div class="chart-head"><div><h3>Sales trajectory</h3><p>Revenue across the last six months</p></div><span class="eyebrow">PHP</span></div><canvas id="barChart" aria-label="Six month sales chart"></canvas></article><article class="panel chart"><div class="chart-head"><div><h3>Product mix</h3><p>Share of filtered records</p></div></div><div class="donut-wrap"><canvas id="donutChart" aria-label="Product mix chart"></canvas><div class="donut-center"><b id="donutValue">0</b><small>products</small></div></div></article></div>
 <section class="panel table-panel"><div class="panel-title"><h3>Customer records</h3><span id="resultCount">0 results</span></div><div class="toolbar"><div class="search"><input id="search" type="search" placeholder="Search customer, product, address, license…" aria-label="Search records"></div><select id="productFilter" aria-label="Filter by product"><option value="">All products</option></select><select id="dateFilter" aria-label="Filter by date"><option value="">All dates</option><option value="month">This month</option><option value="30">Last 30 days</option><option value="year">This year</option></select></div><div class="table-scroll"><table><thead><tr><th>Date</th><th>Customer</th><th>Order #</th><th>Product</th><th>Price</th><th>Address</th><th>License</th><th>Status</th><th>Actions</th></tr></thead><tbody id="recordRows"></tbody></table><div class="empty" id="emptyState"><div class="empty-icon">⌁</div><strong>No records found</strong><div>Try changing the filters or add your first customer.</div></div></div></section></div>
-</section></main><div class="toast" id="toast" role="status" aria-live="polite"></div><div class="photo-viewer" id="photoViewer" role="dialog" aria-modal="true" aria-label="Customer picture"><button type="button" id="closeViewer" aria-label="Close picture">×</button><img id="viewerImage" alt="Customer picture"></div>
+</section>
+</div>
+<div class="view" id="viewCosts" hidden>
+<section class="workspace">
+<aside class="panel form-panel cost-form-panel">
+  <div class="panel-title"><h3>Add Cost Entry</h3><span>Per-order breakdown</span></div>
+  <form class="form-body" id="costForm">
+    <div class="form-grid">
+      <div class="field"><label for="costDate">DATE</label><input id="costDate" name="date" type="date" readonly></div>
+      <div class="field"><label for="costOrderNumber">ORDER # <span class="req">*</span></label><select id="costOrderNumber" name="orderNumber" required><option value="">Loading orders…</option></select></div>
+    </div>
+    <div class="cost-context" id="costContext">Pick an order to load the raw materials list.</div>
+    <div class="upload-label" style="margin-top:14px"><span>RAW MATERIALS</span><small id="costItemsHint">Defaults from RawMaterials · amounts editable</small></div>
+    <div class="cost-items" id="costItems"><div class="cost-empty">No materials loaded yet.</div></div>
+    <div class="cost-total-row"><span>Total</span><strong id="costTotal">₱0.00</strong></div>
+    <div class="form-actions">
+      <button class="btn primary" id="costSaveBtn" type="submit" disabled>＋ Save cost entry</button>
+      <button class="btn" id="costResetBtn" type="button">Clear</button>
+    </div>
+  </form>
+</aside>
+<div class="content">
+  <section class="panel table-panel">
+    <div class="panel-title"><h3>Cost &amp; Expenses</h3><span id="costCount">0 entries</span></div>
+    <div class="table-scroll">
+      <table class="cost-log-table">
+        <thead><tr><th>Date</th><th>Order #</th><th>Description</th><th>QTY</th><th>Amount</th><th>Total</th></tr></thead>
+        <tbody id="costLogRows"></tbody>
+      </table>
+      <div class="empty" id="costEmpty"><div class="empty-icon">⌁</div><strong>No cost entries yet</strong><div>Pick an order on the left, review the materials, then save.</div></div>
+    </div>
+  </section>
+</div>
+</section>
+</div>
+</main><div class="toast" id="toast" role="status" aria-live="polite"></div><div class="photo-viewer" id="photoViewer" role="dialog" aria-modal="true" aria-label="Customer picture"><button type="button" id="closeViewer" aria-label="Close picture">×</button><img id="viewerImage" alt="Customer picture"></div>
 <div class="income-viewer" id="incomeModal" role="dialog" aria-modal="true" aria-label="Enter income details">
   <div class="income-sheet">
     <div class="income-head">
@@ -851,7 +1019,19 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   async function saveIncome(e){e.preventDefault();if(!incomeCurrentId)return;var body={};new FormData(e.target).forEach(function(v,k){body[k]=v});var btn=$('incomeSaveBtn');btn.disabled=true;btn.textContent='Saving…';try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(body)});toast('Income details saved to Google Sheets.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false}}
   async function deleteIncome(){if(!incomeCurrentId)return;var r=records.find(function(v){return v.id===incomeCurrentId});if(!confirm('Delete the income details for '+(r?r.customerName:'this record')+'? The customer record itself will be kept.'))return;var btn=$('incomeDeleteBtn');btn.disabled=true;try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'DELETE'});toast('Income details cleared.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false}}
   $('incomeForm').onsubmit=saveIncome;$('incomeCancelBtn').onclick=closeIncomeModal;$('closeIncomeBtn').onclick=closeIncomeModal;$('incomeDeleteBtn').onclick=deleteIncome;$('incomeModal').onclick=function(e){if(e.target===$('incomeModal'))closeIncomeModal()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('incomeModal').className.indexOf('show')>-1)closeIncomeModal()});['incCommission','incAdvertising','incFreight','incWHT','incPaymentFee','incOrderProcessingFee'].forEach(function(id){$(id).addEventListener('input',computeIncomeNet)});$('incNetTotal').addEventListener('input',function(){incomeNetTouched=true});
-  setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources()]).then(loadRecords).catch(function(e){toast(e.message,true);loadRecords()});
+  var rawMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={};
+  function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!=='view'+name.charAt(0).toUpperCase()+name.slice(1)});if(name==='costs'){loadCosts();refreshCostOrderOptions()}}
+  document.querySelectorAll('.view-tab').forEach(function(b){b.onclick=function(){switchView(b.dataset.view)}});
+  async function loadRawMaterials(){try{var d=await api('/api/raw-materials');rawMaterials=d.items||[]}catch(e){rawMaterials=[]}}
+  async function loadCosts(){try{var d=await api('/api/costs');costEntries=d.entries||[];costedOrders=d.costedOrders||[];renderCostLog();refreshCostOrderOptions()}catch(e){costEntries=[];costedOrders=[];renderCostLog()}}
+  function refreshCostOrderOptions(){var sel=$('costOrderNumber');if(!sel)return;var current=sel.value;var costed={};costedOrders.forEach(function(o){costed[o]=true});var seen={};var available=records.filter(function(r){if(!r.orderNumber||costed[r.orderNumber]||seen[r.orderNumber])return false;seen[r.orderNumber]=true;return true}).map(function(r){return {orderNumber:r.orderNumber,customer:r.customerName,product:r.description}});var opts='<option value="">Select an order…</option>'+available.map(function(o){var label=o.orderNumber+' · '+(o.customer||'—')+(o.product?' — '+o.product:'');return '<option value="'+esc(o.orderNumber)+'">'+esc(label)+'</option>'}).join('');sel.innerHTML=opts;if(current&&available.some(function(o){return o.orderNumber===current}))sel.value=current}
+  function populateCostItems(orderNumber){var container=$('costItems');if(!orderNumber||!rawMaterials.length){container.innerHTML='<div class="cost-empty">'+(rawMaterials.length?'Pick an order to load the raw materials list.':'RawMaterials sheet is empty or unavailable.')+'</div>';$('costSaveBtn').disabled=true;$('costContext').textContent='Pick an order to load the raw materials list.';updateCostTotal();return}var rec=records.find(function(r){return r.orderNumber===orderNumber});$('costContext').innerHTML=rec?'Order <strong>'+esc(rec.orderNumber)+'</strong> · '+esc(rec.customerName||'—')+' · '+esc(rec.description||'—')+' · Gross '+money(rec.price):'Order <strong>'+esc(orderNumber)+'</strong>';costLineAmounts={};container.innerHTML=rawMaterials.map(function(m,i){costLineAmounts[i]=Number(m.amount)||0;var lineTotal=(Number(m.qty)||0)*(Number(m.amount)||0);return '<div class="cost-item" data-index="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><div class="qty">×'+(Number(m.qty)||0)+'</div><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-index="'+i+'" aria-label="Amount for '+esc(m.description)+'"><div class="line-total" data-line-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');container.querySelectorAll('input.amount').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.index);costLineAmounts[idx]=Number(inp.value)||0;var lineTotal=(Number(rawMaterials[idx].qty)||0)*costLineAmounts[idx];var cell=container.querySelector('[data-line-total="'+idx+'"]');if(cell)cell.textContent=money(lineTotal);updateCostTotal()})});$('costSaveBtn').disabled=false;updateCostTotal()}
+  function updateCostTotal(){var total=0;rawMaterials.forEach(function(m,i){total+=(Number(m.qty)||0)*(Number(costLineAmounts[i])||0)});$('costTotal').textContent=money(total)}
+  function clearCostForm(){$('costForm').reset();$('costDate').value=today();$('costOrderNumber').value='';costLineAmounts={};populateCostItems('')}
+  async function saveCostEntry(e){e.preventDefault();var orderNumber=$('costOrderNumber').value;if(!orderNumber){toast('Pick an order first.',true);return}var items=rawMaterials.map(function(m,i){return {description:m.description,qty:Number(m.qty)||0,amount:Number(costLineAmounts[i])||0}});var btn=$('costSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({date:$('costDate').value||today(),orderNumber:orderNumber,items:items})});toast('Cost entry saved to Google Sheets.');clearCostForm();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
+  function renderCostLog(){var tbody=$('costLogRows');var grouped={};costEntries.forEach(function(e){(grouped[e.orderNumber]=grouped[e.orderNumber]||[]).push(e)});var orderKeys=Object.keys(grouped).sort();var html='';var totalEntries=0;orderKeys.forEach(function(order){var lines=grouped[order];var subtotal=lines.reduce(function(s,l){return s+(Number(l.total)||0)},0);var date=lines[0]&&lines[0].date||'';html+='<tr class="order-header"><td colspan="6" data-label="Order">Order '+esc(order)+' · '+esc(date)+' · '+money(subtotal)+' total</td></tr>';lines.forEach(function(l){totalEntries++;html+='<tr><td data-label="Date">'+esc(l.date)+'</td><td data-label="Order #" class="order-cell">'+esc(l.orderNumber)+'</td><td data-label="Description">'+esc(l.description)+'</td><td data-label="QTY">'+(Number(l.qty)||0)+'</td><td data-label="Amount">'+money(l.amount)+'</td><td data-label="Total">'+money(l.total)+'</td></tr>'})});tbody.innerHTML=html;$('costEmpty').className='empty'+(totalEntries?'':' show');$('costCount').textContent=totalEntries+' entr'+(totalEntries===1?'y':'ies')}
+  $('costOrderNumber').addEventListener('change',function(){populateCostItems(this.value)});$('costForm').onsubmit=saveCostEntry;$('costResetBtn').onclick=clearCostForm;$('costDate').value=today();
+  setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials()]).then(loadRecords).then(refreshCostOrderOptions).catch(function(e){toast(e.message,true);loadRecords()});
 })();
 </script></body></html>`;
 
