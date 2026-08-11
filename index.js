@@ -867,7 +867,41 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   .view-tab{padding:11px 12px;font-size:13px}
 }
 
-/* Cost & Expenses view */
+/* Cost & Expenses view — landscape */
+.cost-workspace{grid-template-columns:1fr!important;gap:18px}
+.cost-form-panel{width:100%!important;max-width:none!important}
+.cost-top-grid{display:grid;grid-template-columns:180px 320px 1fr;gap:14px;align-items:start}
+.cost-top-grid .cost-context{margin-top:0;align-self:stretch;display:flex;align-items:center}
+.cost-items-grid{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0}
+.cost-items-grid .cost-item{border-right:1px solid #f1f5f9;border-bottom:1px solid #f1f5f9;padding:12px 14px}
+.cost-items-grid .cost-empty{grid-column:1/-1}
+.router-picker-row{margin:8px 0 6px}
+.router-picker-row select{border:1px solid var(--line);border-radius:10px;background:linear-gradient(135deg,#ecfdf5,#f0fdf4);color:#065f46;font-weight:600;padding:10px 12px;cursor:pointer;max-width:420px}
+.router-picker-row select:hover{border-color:#10b981}
+.router-picker-row select:focus{outline:none;border-color:#10b981;box-shadow:0 0 0 3px #a7f3d0}
+.cost-item .remove-router{border:none;background:transparent;color:var(--red);font-size:22px;line-height:1;cursor:pointer;width:28px;height:28px;border-radius:8px;padding:0;display:grid;place-items:center;transition:.15s}
+.cost-item .remove-router:hover{background:#fef2f2}
+.cost-item-router{grid-template-columns:1fr 60px 110px 110px 28px!important;background:linear-gradient(180deg,#f0fdf4,#fbfdff)}
+.cost-footer{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.cost-total-row{margin:0;flex:1;min-width:220px}
+.cost-form-actions{display:flex!important;justify-content:flex-end!important;gap:10px!important;grid-template-columns:none!important;margin-top:0!important;padding-top:0!important;border-top:none!important}
+.cost-form-actions .btn{min-width:120px}
+.cost-form-actions .primary{grid-column:auto!important;order:0!important}
+@media(max-width:900px){
+  .cost-top-grid{grid-template-columns:1fr 1fr;gap:12px}
+  .cost-top-grid .cost-context{grid-column:1/-1}
+  .cost-items-grid{grid-template-columns:1fr}
+}
+@media(max-width:640px){
+  .cost-top-grid{grid-template-columns:1fr}
+  .cost-item-router{grid-template-columns:1fr 46px 90px 90px 28px!important}
+  .router-picker-row select{width:100%;max-width:none}
+  .cost-footer{flex-direction:column;align-items:stretch}
+  .cost-form-actions{width:100%}
+  .cost-form-actions .btn{flex:1}
+}
+
+/* Cost & Expenses view (legacy — kept for the shared cost-item base) */
 .cost-context{background:linear-gradient(135deg,#f8fafc,#eff6ff);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-top:8px;font-size:12px;color:var(--muted);line-height:1.5}
 .cost-context strong{color:var(--primary)}
 .cost-items{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
@@ -966,23 +1000,26 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 </section>
 </div>
 <div class="view" id="viewCosts" hidden>
-<section class="workspace">
+<section class="workspace cost-workspace">
 <aside class="panel form-panel cost-form-panel">
   <div class="panel-title"><h3>Add Cost Entry</h3><span>Per-order breakdown</span></div>
   <form class="form-body" id="costForm">
-    <div class="form-grid">
+    <div class="cost-top-grid">
       <div class="field"><label for="costDate">DATE</label><input id="costDate" name="date" type="date" readonly></div>
       <div class="field"><label for="costOrderNumber">ORDER # <span class="req">*</span></label><select id="costOrderNumber" name="orderNumber" required><option value="">Loading orders…</option></select></div>
+      <div class="cost-context" id="costContext">Pick an order to load the raw materials list.</div>
     </div>
-    <div class="cost-context" id="costContext">Pick an order to load the raw materials list.</div>
     <div class="upload-label" style="margin-top:14px"><span>RAW MATERIALS</span><small id="costItemsHint">Defaults from RawMaterials · amounts editable</small></div>
-    <div class="cost-items" id="costItems"><div class="cost-empty">No materials loaded yet.</div></div>
-    <div class="upload-label" style="margin-top:14px"><span>OTHER EXPENSES · ROUTER</span><small>Defaults from Router · amounts editable · set QTY 0 to skip</small></div>
-    <div class="cost-items" id="costRouterItems"><div class="cost-empty">No router options loaded yet.</div></div>
-    <div class="cost-total-row"><span>Total</span><strong id="costTotal">₱0.00</strong></div>
-    <div class="form-actions">
-      <button class="btn primary" id="costSaveBtn" type="submit" disabled>＋ Save cost entry</button>
-      <button class="btn" id="costResetBtn" type="button">Clear</button>
+    <div class="cost-items cost-items-grid" id="costItems"><div class="cost-empty">No materials loaded yet.</div></div>
+    <div class="upload-label" style="margin-top:14px"><span>OTHER EXPENSES · ROUTER</span><small>Pick 1 or more · amounts editable</small></div>
+    <div class="router-picker-row"><select id="costRouterPicker" aria-label="Add a router"><option value="">＋ Add a router…</option></select></div>
+    <div class="cost-items cost-items-grid" id="costRouterItems"><div class="cost-empty">No routers selected yet.</div></div>
+    <div class="cost-footer">
+      <div class="cost-total-row"><span>Total</span><strong id="costTotal">₱0.00</strong></div>
+      <div class="form-actions cost-form-actions">
+        <button class="btn" id="costResetBtn" type="button">Clear</button>
+        <button class="btn primary" id="costSaveBtn" type="submit" disabled>＋ Save cost entry</button>
+      </div>
     </div>
   </form>
 </aside>
@@ -994,7 +1031,7 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
         <thead><tr><th>Date</th><th>Order #</th><th>Description</th><th>QTY</th><th>Amount</th><th>Total</th><th>Actions</th></tr></thead>
         <tbody id="costLogRows"></tbody>
       </table>
-      <div class="empty" id="costEmpty"><div class="empty-icon">⌁</div><strong>No cost entries yet</strong><div>Pick an order on the left, review the materials, then save.</div></div>
+      <div class="empty" id="costEmpty"><div class="empty-icon">⌁</div><strong>No cost entries yet</strong><div>Pick an order above, review the materials, then save.</div></div>
     </div>
   </section>
 </div>
@@ -1092,22 +1129,23 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   async function saveIncome(e){e.preventDefault();if(!incomeCurrentId)return;var body={};new FormData(e.target).forEach(function(v,k){body[k]=v});var btn=$('incomeSaveBtn');btn.disabled=true;btn.textContent='Saving…';try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(body)});toast('Income details saved to Google Sheets.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false}}
   async function deleteIncome(){if(!incomeCurrentId)return;var r=records.find(function(v){return v.id===incomeCurrentId});if(!confirm('Delete the income details for '+(r?r.customerName:'this record')+'? The customer record itself will be kept.'))return;var btn=$('incomeDeleteBtn');btn.disabled=true;try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'DELETE'});toast('Income details cleared.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false}}
   $('incomeForm').onsubmit=saveIncome;$('incomeCancelBtn').onclick=closeIncomeModal;$('closeIncomeBtn').onclick=closeIncomeModal;$('incomeDeleteBtn').onclick=deleteIncome;$('incomeModal').onclick=function(e){if(e.target===$('incomeModal'))closeIncomeModal()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('incomeModal').className.indexOf('show')>-1)closeIncomeModal()});['incCommission','incAdvertising','incFreight','incWHT','incPaymentFee','incOrderProcessingFee'].forEach(function(id){$(id).addEventListener('input',computeIncomeNet)});$('incNetTotal').addEventListener('input',function(){incomeNetTouched=true});
-  var rawMaterials=[],routerMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={},costRouterAmounts={},costRouterQtys={};
+  var rawMaterials=[],routerMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={},selectedRouters=[];
   function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!=='view'+name.charAt(0).toUpperCase()+name.slice(1)});if(name==='costs'){loadCosts();refreshCostOrderOptions()}}
   document.querySelectorAll('.view-tab').forEach(function(b){b.onclick=function(){switchView(b.dataset.view)}});
   async function loadRawMaterials(){try{var d=await api('/api/raw-materials');rawMaterials=d.items||[]}catch(e){rawMaterials=[]}}
-  async function loadRouters(){try{var d=await api('/api/routers');routerMaterials=d.items||[]}catch(e){routerMaterials=[]}}
+  async function loadRouters(){try{var d=await api('/api/routers');routerMaterials=d.items||[]}catch(e){routerMaterials=[]}refreshRouterPicker()}
   async function loadCosts(){try{var d=await api('/api/costs');costEntries=d.entries||[];costedOrders=d.costedOrders||[];renderCostLog();refreshCostOrderOptions()}catch(e){costEntries=[];costedOrders=[];renderCostLog()}}
   function refreshCostOrderOptions(){var sel=$('costOrderNumber');if(!sel)return;var current=sel.value;var costed={};costedOrders.forEach(function(o){costed[o]=true});var seen={};var available=records.filter(function(r){if(!r.orderNumber||costed[r.orderNumber]||seen[r.orderNumber])return false;seen[r.orderNumber]=true;return true}).map(function(r){return {orderNumber:r.orderNumber,customer:r.customerName,product:r.description}});var opts='<option value="">Select an order…</option>'+available.map(function(o){var label=o.orderNumber+' · '+(o.customer||'—')+(o.product?' — '+o.product:'');return '<option value="'+esc(o.orderNumber)+'">'+esc(label)+'</option>'}).join('');sel.innerHTML=opts;if(current&&available.some(function(o){return o.orderNumber===current}))sel.value=current}
-  function populateCostItems(orderNumber){var rawWrap=$('costItems'),routerWrap=$('costRouterItems');if(!orderNumber){rawWrap.innerHTML='<div class="cost-empty">'+(rawMaterials.length?'Pick an order to load the raw materials list.':'RawMaterials sheet is empty or unavailable.')+'</div>';routerWrap.innerHTML='<div class="cost-empty">Pick an order to load router options.</div>';$('costSaveBtn').disabled=true;$('costContext').textContent='Pick an order to load the raw materials list.';costLineAmounts={};costRouterAmounts={};costRouterQtys={};updateCostTotal();return}var rec=records.find(function(r){return r.orderNumber===orderNumber});$('costContext').innerHTML=rec?'Order <strong>'+esc(rec.orderNumber)+'</strong> · '+esc(rec.customerName||'—')+' · '+esc(rec.description||'—')+' · Gross '+money(rec.price):'Order <strong>'+esc(orderNumber)+'</strong>';
+  function refreshRouterPicker(){var picker=$('costRouterPicker');if(!picker)return;var used={};selectedRouters.forEach(function(s){used[s.idx]=true});var opts='<option value="">＋ Add a router…</option>';routerMaterials.forEach(function(m,i){if(!used[i])opts+='<option value="'+i+'">'+esc(m.description)+' — '+money(m.amount)+'</option>'});picker.innerHTML=opts;picker.value=''}
+  function renderSelectedRouters(){var wrap=$('costRouterItems');if(!selectedRouters.length){wrap.innerHTML='<div class="cost-empty">No routers selected yet.</div>';updateCostTotal();refreshRouterPicker();return}wrap.innerHTML=selectedRouters.map(function(s,i){var m=routerMaterials[s.idx];if(!m)return '';var lineTotal=(Number(s.qty)||0)*(Number(s.amount)||0);return '<div class="cost-item cost-item-router" data-selected="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><input class="qty-input" type="number" step="1" min="0" inputmode="numeric" value="'+(Number(s.qty)||0)+'" data-sel-qty="'+i+'" aria-label="QTY for '+esc(m.description)+'"><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(s.amount)||0).toFixed(2)+'" data-sel-amt="'+i+'" aria-label="Amount for '+esc(m.description)+'"><div class="line-total" data-sel-total="'+i+'">'+money(lineTotal)+'</div><button type="button" class="remove-router" data-sel-remove="'+i+'" aria-label="Remove '+esc(m.description)+'">×</button></div>'}).join('');wrap.querySelectorAll('input[data-sel-amt]').forEach(function(inp){inp.addEventListener('input',function(){var i=Number(inp.dataset.selAmt);selectedRouters[i].amount=Number(inp.value)||0;var cell=wrap.querySelector('[data-sel-total="'+i+'"]');if(cell)cell.textContent=money(selectedRouters[i].qty*selectedRouters[i].amount);updateCostTotal()})});wrap.querySelectorAll('input[data-sel-qty]').forEach(function(inp){inp.addEventListener('input',function(){var i=Number(inp.dataset.selQty);selectedRouters[i].qty=Number(inp.value)||0;var cell=wrap.querySelector('[data-sel-total="'+i+'"]');if(cell)cell.textContent=money(selectedRouters[i].qty*selectedRouters[i].amount);updateCostTotal()})});wrap.querySelectorAll('[data-sel-remove]').forEach(function(btn){btn.onclick=function(){var i=Number(btn.dataset.selRemove);selectedRouters.splice(i,1);renderSelectedRouters()}});updateCostTotal();refreshRouterPicker()}
+  function populateCostItems(orderNumber){var rawWrap=$('costItems');if(!orderNumber){rawWrap.innerHTML='<div class="cost-empty">'+(rawMaterials.length?'Pick an order to load the raw materials list.':'RawMaterials sheet is empty or unavailable.')+'</div>';$('costSaveBtn').disabled=true;$('costContext').textContent='Pick an order to load the raw materials list.';costLineAmounts={};selectedRouters=[];renderSelectedRouters();updateCostTotal();return}var rec=records.find(function(r){return r.orderNumber===orderNumber});$('costContext').innerHTML=rec?'Order <strong>'+esc(rec.orderNumber)+'</strong> · '+esc(rec.customerName||'—')+' · '+esc(rec.description||'—')+' · Gross '+money(rec.price):'Order <strong>'+esc(orderNumber)+'</strong>';
     costLineAmounts={};
     if(rawMaterials.length){rawWrap.innerHTML=rawMaterials.map(function(m,i){costLineAmounts[i]=Number(m.amount)||0;var lineTotal=(Number(m.qty)||0)*(Number(m.amount)||0);return '<div class="cost-item" data-index="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><div class="qty">×'+(Number(m.qty)||0)+'</div><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-raw="'+i+'" aria-label="Amount for '+esc(m.description)+'"><div class="line-total" data-raw-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');rawWrap.querySelectorAll('input.amount[data-raw]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.raw);costLineAmounts[idx]=Number(inp.value)||0;var cell=rawWrap.querySelector('[data-raw-total="'+idx+'"]');if(cell)cell.textContent=money((Number(rawMaterials[idx].qty)||0)*costLineAmounts[idx]);updateCostTotal()})})}else{rawWrap.innerHTML='<div class="cost-empty">RawMaterials sheet is empty or unavailable.</div>'}
-    costRouterAmounts={};costRouterQtys={};
-    if(routerMaterials.length){routerWrap.innerHTML=routerMaterials.map(function(m,i){costRouterAmounts[i]=Number(m.amount)||0;costRouterQtys[i]=1;var lineTotal=1*(Number(m.amount)||0);return '<div class="cost-item cost-item-router" data-router="'+i+'"><div class="desc" title="'+esc(m.description)+'">'+esc(m.description)+'</div><input class="qty-input" type="number" step="1" min="0" inputmode="numeric" value="1" data-router-qty="'+i+'" aria-label="QTY for '+esc(m.description)+'"><input class="amount" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.amount)||0).toFixed(2)+'" data-router-amt="'+i+'" aria-label="Amount for '+esc(m.description)+'"><div class="line-total" data-router-total="'+i+'">'+money(lineTotal)+'</div></div>'}).join('');routerWrap.querySelectorAll('input[data-router-amt]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.routerAmt);costRouterAmounts[idx]=Number(inp.value)||0;var cell=routerWrap.querySelector('[data-router-total="'+idx+'"]');if(cell)cell.textContent=money((Number(costRouterQtys[idx])||0)*costRouterAmounts[idx]);updateCostTotal()})});routerWrap.querySelectorAll('input[data-router-qty]').forEach(function(inp){inp.addEventListener('input',function(){var idx=Number(inp.dataset.routerQty);costRouterQtys[idx]=Number(inp.value)||0;var cell=routerWrap.querySelector('[data-router-total="'+idx+'"]');if(cell)cell.textContent=money(costRouterQtys[idx]*(Number(costRouterAmounts[idx])||0));updateCostTotal()})})}else{routerWrap.innerHTML='<div class="cost-empty">Router sheet is empty or unavailable.</div>'}
+    selectedRouters=[];renderSelectedRouters();
     $('costSaveBtn').disabled=false;updateCostTotal()}
-  function updateCostTotal(){var total=0;rawMaterials.forEach(function(m,i){total+=(Number(m.qty)||0)*(Number(costLineAmounts[i])||0)});routerMaterials.forEach(function(m,i){total+=(Number(costRouterQtys[i])||0)*(Number(costRouterAmounts[i])||0)});$('costTotal').textContent=money(total)}
-  function clearCostForm(){$('costForm').reset();$('costDate').value=today();$('costOrderNumber').value='';costLineAmounts={};costRouterAmounts={};costRouterQtys={};populateCostItems('')}
-  async function saveCostEntry(e){e.preventDefault();var orderNumber=$('costOrderNumber').value;if(!orderNumber){toast('Pick an order first.',true);return}var items=[];rawMaterials.forEach(function(m,i){items.push({description:m.description,qty:Number(m.qty)||0,amount:Number(costLineAmounts[i])||0})});routerMaterials.forEach(function(m,i){var qty=Number(costRouterQtys[i])||0;if(qty>0)items.push({description:m.description,qty:qty,amount:Number(costRouterAmounts[i])||0})});var btn=$('costSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({date:$('costDate').value||today(),orderNumber:orderNumber,items:items})});toast('Cost entry saved to Google Sheets.');clearCostForm();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
+  function updateCostTotal(){var total=0;rawMaterials.forEach(function(m,i){total+=(Number(m.qty)||0)*(Number(costLineAmounts[i])||0)});selectedRouters.forEach(function(s){total+=(Number(s.qty)||0)*(Number(s.amount)||0)});$('costTotal').textContent=money(total)}
+  function clearCostForm(){$('costForm').reset();$('costDate').value=today();$('costOrderNumber').value='';costLineAmounts={};selectedRouters=[];populateCostItems('')}
+  async function saveCostEntry(e){e.preventDefault();var orderNumber=$('costOrderNumber').value;if(!orderNumber){toast('Pick an order first.',true);return}var items=[];rawMaterials.forEach(function(m,i){items.push({description:m.description,qty:Number(m.qty)||0,amount:Number(costLineAmounts[i])||0})});selectedRouters.forEach(function(s){var m=routerMaterials[s.idx];if(!m)return;var qty=Number(s.qty)||0;if(qty>0)items.push({description:m.description,qty:qty,amount:Number(s.amount)||0})});var btn=$('costSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/costs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({date:$('costDate').value||today(),orderNumber:orderNumber,items:items})});toast('Cost entry saved to Google Sheets.');clearCostForm();await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
   function renderCostLog(){var tbody=$('costLogRows');var grouped={};costEntries.forEach(function(e){(grouped[e.orderNumber]=grouped[e.orderNumber]||[]).push(e)});var orderKeys=Object.keys(grouped).sort();var html='';var totalEntries=0;orderKeys.forEach(function(order){var lines=grouped[order];var subtotal=lines.reduce(function(s,l){return s+(Number(l.total)||0)},0);var date=lines[0]&&lines[0].date||'';html+='<tr class="order-header"><td colspan="7" data-label="Order">Order '+esc(order)+' · '+esc(date)+' · '+money(subtotal)+' total</td></tr>';lines.forEach(function(l){totalEntries++;html+='<tr data-cost-id="'+esc(l.id)+'"><td data-label="Date">'+esc(l.date)+'</td><td data-label="Order #" class="order-cell">'+esc(l.orderNumber)+'</td><td data-label="Description">'+esc(l.description)+'</td><td data-label="QTY">'+(Number(l.qty)||0)+'</td><td data-label="Amount">'+money(l.amount)+'</td><td data-label="Total">'+money(l.total)+'</td><td data-label="Actions"><div class="row-actions"><button class="icon-btn cost-edit" aria-label="Edit line" title="Edit">✎</button><button class="icon-btn delete cost-del" aria-label="Delete line" title="Delete">×</button></div></td></tr>'})});tbody.innerHTML=html;$('costEmpty').className='empty'+(totalEntries?'':' show');$('costCount').textContent=totalEntries+' entr'+(totalEntries===1?'y':'ies');tbody.querySelectorAll('.cost-edit').forEach(function(b){b.onclick=function(){openCostEdit(b.closest('tr').dataset.costId)}});tbody.querySelectorAll('.cost-del').forEach(function(b){b.onclick=function(){deleteCostLine(b.closest('tr').dataset.costId)}})}
   var costEditingId='';
   function computeCostEditTotal(){var q=Number($('costEditQty').value)||0,a=Number($('costEditAmount').value)||0;$('costEditTotal').value=(Math.round(q*a*100)/100).toFixed(2)}
@@ -1117,6 +1155,7 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
   async function deleteCostLine(id){var line=costEntries.find(function(l){return l.id===id});if(!line)return;if(!confirm('Delete this cost line? \n\n'+(line.description||'')+' — '+money(line.total)))return;try{await api('/api/costs/'+encodeURIComponent(id),{method:'DELETE'});toast('Cost line deleted.');await loadCosts()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}}
   $('costEditForm').onsubmit=saveCostEdit;$('costEditCancelBtn').onclick=closeCostEdit;$('costEditCloseBtn').onclick=closeCostEdit;$('costEditModal').onclick=function(e){if(e.target===$('costEditModal'))closeCostEdit()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('costEditModal').className.indexOf('show')>-1)closeCostEdit()});['costEditQty','costEditAmount'].forEach(function(id){$(id).addEventListener('input',computeCostEditTotal)});
   $('costOrderNumber').addEventListener('change',function(){populateCostItems(this.value)});$('costForm').onsubmit=saveCostEntry;$('costResetBtn').onclick=clearCostForm;$('costDate').value=today();
+  $('costRouterPicker').addEventListener('change',function(){var v=this.value;if(v===''||v===null)return;var idx=Number(v);var m=routerMaterials[idx];if(!m)return;selectedRouters.push({idx:idx,qty:1,amount:Number(m.amount)||0});renderSelectedRouters()});
   setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials(),loadRouters()]).then(loadRecords).then(refreshCostOrderOptions).catch(function(e){toast(e.message,true);loadRecords()});
 })();
 </script></body></html>`;
