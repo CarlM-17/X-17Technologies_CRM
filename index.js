@@ -291,7 +291,7 @@ async function getValues(sheet) {
   const token = await accessToken();
   if (token) {
     try {
-      const data = await google(`/values/${encodeURIComponent(`'${sheet}'!A:Z`)}`);
+      const data = await google(`/values/${encodeURIComponent(`'${sheet}'!A:Z`)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`);
       return data.values || [];
     } catch (error) {
       if (!String(error.message).toLowerCase().includes('unable to parse range')) throw error;
