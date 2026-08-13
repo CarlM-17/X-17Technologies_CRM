@@ -967,14 +967,20 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
 }
 
 /* View tabs */
-.view-tabs{display:flex;gap:6px;padding:6px;margin:0 0 18px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);max-width:520px}
-.view-tab{flex:1;padding:11px 18px;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;font-weight:600;font-size:14px;transition:.15s;font-family:inherit;letter-spacing:-.01em}
-.view-tab:hover{color:var(--primary);background:#f8fafc}
-.view-tab.active{background:linear-gradient(135deg,var(--primary),#1e3a8a);color:#fff;box-shadow:0 4px 12px rgba(11,37,69,0.2)}
+.view-tabs{display:flex;gap:6px;padding:6px;margin:0 0 18px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.view-tabs::-webkit-scrollbar{height:6px}
+.view-tabs::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+.view-tab{flex:0 0 auto;padding:11px 18px;border:1px solid transparent;background:var(--accent-soft);color:var(--primary);border-radius:10px;cursor:pointer;font-weight:600;font-size:14px;transition:.15s;font-family:inherit;letter-spacing:-.01em;white-space:nowrap}
+.view-tab:hover{background:#bfdbfe;border-color:var(--blue);color:var(--primary)}
+.view-tab.active{background:linear-gradient(135deg,var(--primary),#1e3a8a);color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(11,37,69,0.25)}
+.view-tab.active:hover{background:linear-gradient(135deg,var(--primary-hover),#1e3a8a);color:#fff}
 .view[hidden]{display:none!important}
 @media(max-width:800px){
-  .view-tabs{margin:0 14px 14px;border-radius:12px;max-width:none}
-  .view-tab{padding:11px 12px;font-size:13px}
+  .view-tabs{margin:0 14px 14px;border-radius:12px;padding:5px;gap:4px}
+  .view-tab{padding:10px 14px;font-size:13px}
+}
+@media(max-width:480px){
+  .view-tab{padding:10px 12px;font-size:12.5px}
 }
 
 /* Cost log toolbar */
