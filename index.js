@@ -991,20 +991,20 @@ tbody tr:hover td{background:linear-gradient(90deg,#eff6ff,#f8fafc)!important}
    ============================================ */
 body{background:var(--page-bg);color:var(--text)}
 
-/* Header — leaner corporate feel */
-header.topbar{background:#fff;border-bottom:1px solid var(--line);padding:14px 24px;box-shadow:0 1px 0 rgba(15,42,75,0.03);margin-bottom:20px}
-.brand h1{color:var(--primary);font-size:18px;font-weight:700;letter-spacing:-.015em;background:none!important;-webkit-text-fill-color:currentColor!important}
-.brand p{color:var(--muted);font-size:12px;font-weight:500}
+/* Header — dark navy corporate bar */
+header.topbar{background:linear-gradient(180deg,#0B2A55 0%,#082246 100%);border-bottom:1px solid #061B39;padding:14px 24px;box-shadow:0 2px 12px rgba(11,42,85,0.18);margin-bottom:20px}
+.brand h1{color:#fff;font-size:18px;font-weight:700;letter-spacing:-.015em;background:none!important;-webkit-text-fill-color:#fff!important}
+.brand p{color:#A9BCD6;font-size:12px;font-weight:500}
 .brand p::before{content:""}
-.brand .logo{border-radius:12px;box-shadow:0 2px 6px rgba(11,42,85,0.08)!important;background:#fff!important}
+.brand .logo{border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.25),inset 0 0 0 1px rgba(255,255,255,0.15)!important;background:#fff!important}
 .brand h1::after{content:""}
-.top-actions{gap:14px}
-.top-actions .btn{background:#fff;color:var(--muted);border:1px solid var(--line);font-weight:600;font-size:12px;padding:8px 12px}
-.top-actions .btn:hover{background:var(--accent-soft);border-color:var(--blue);color:var(--primary);transform:none}
-.status{padding:6px 10px;background:var(--accent-softer);border:1px solid var(--line);border-radius:999px;font-size:11px;font-weight:600;color:var(--primary)}
-.status .dot{width:7px;height:7px;box-shadow:none!important}
-.status .dot.live{background:var(--green)!important}
-.status .dot.live:before{background:var(--green)!important}
+.top-actions{gap:12px}
+.top-actions .btn{background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.22);font-weight:600;font-size:12px;padding:8px 12px;backdrop-filter:blur(4px)}
+.top-actions .btn:hover{background:rgba(255,255,255,0.16);border-color:rgba(255,255,255,0.4);color:#fff;transform:none}
+.status{padding:6px 12px;background:rgba(255,255,255,0.10);border:1px solid rgba(255,255,255,0.18);border-radius:999px;font-size:11px;font-weight:600;color:#EAF3FF;backdrop-filter:blur(4px)}
+.status .dot{width:7px;height:7px;box-shadow:0 0 0 2px rgba(24,166,115,0.25)!important;background:var(--amber)!important}
+.status .dot.live{background:#4ADE80!important;box-shadow:0 0 0 2px rgba(74,222,128,0.28)!important}
+.status .dot.live:before{background:#4ADE80!important;opacity:.45!important}
 
 /* Hero — hidden per corporate spec (DOM kept so JS refs still resolve) */
 .hero{display:none!important}
@@ -1220,15 +1220,29 @@ main.shell > *{max-width:100%}
 .rm-slot-note{margin-top:6px;font-size:11px;color:var(--amber);font-style:italic}
 .raw-mat-edit-table .btn.rm-save{white-space:nowrap;min-height:36px}
 @media(max-width:900px){
-  .raw-mat-edit-table{min-width:0}
+  .raw-mat-edit-table{min-width:0;width:100%;table-layout:auto}
   .raw-mat-edit-table thead{display:none}
   .raw-mat-edit-table tbody,.raw-mat-edit-table tr,.raw-mat-edit-table td{display:block}
-  .raw-mat-edit-table tr{margin:12px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:var(--shadow);padding:6px 0}
-  .raw-mat-edit-table td{padding:10px 14px;border-bottom:1px solid #f1f5f9;display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center}
+  .raw-mat-edit-table tr{margin:10px 8px 14px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 4px 16px rgba(11,37,69,0.06);padding:4px 0;overflow:hidden}
+  .raw-mat-edit-table td{padding:10px 14px;border-bottom:1px solid #f1f5f9;display:grid;grid-template-columns:100px minmax(0,1fr);gap:10px;align-items:center;min-width:0}
   .raw-mat-edit-table td:before{content:attr(data-mob-label);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
   .raw-mat-edit-table td:last-child{border-bottom:none}
   .raw-mat-edit-table .rm-num,.raw-mat-edit-table .rm-qty,.raw-mat-edit-table .rm-amount{text-align:left}
-  .raw-mat-edit-table input.rm-price{max-width:none}
+  .raw-mat-edit-table .rm-sup-cell{min-width:0!important;display:block!important;padding:12px 14px}
+  .raw-mat-edit-table .rm-sup-cell:before{display:block;margin-bottom:8px}
+  .raw-mat-edit-table input.rm-desc,.raw-mat-edit-table input.rm-price{max-width:none;width:100%;box-sizing:border-box;font-size:14px;padding:11px 12px}
+  .raw-mat-edit-table .supplier-chips{gap:6px;margin-bottom:10px}
+  .raw-mat-edit-table .supplier-add-row{flex-direction:column;gap:8px}
+  .raw-mat-edit-table .supplier-add-row input.rm-new-sup{width:100%;box-sizing:border-box;font-size:14px;padding:10px 12px;min-width:0}
+  .raw-mat-edit-table .supplier-add-row .btn.rm-add-sup{width:100%;padding:11px 12px;font-size:13px}
+  .raw-mat-edit-table .btn.rm-save{width:100%;padding:12px;font-size:14px;min-height:44px}
+  #viewEditRaw .table-scroll{overflow-x:hidden;padding:0}
+  #viewEditRaw .panel-title{padding:14px 16px}
+  #viewEditRaw .panel-title h3{font-size:14px}
+}
+@media(max-width:400px){
+  .raw-mat-edit-table td{grid-template-columns:78px minmax(0,1fr);gap:8px;padding:10px 12px}
+  .raw-mat-edit-table tr{margin:8px 4px 12px}
 }
 .cost-items-grid .cost-item .line-total{display:none!important}
 .cost-items-grid .cost-item-router{grid-template-columns:minmax(0,1.4fr) 60px 130px minmax(140px,1fr) 32px!important;background:linear-gradient(180deg,#f0fdf4,#ffffff)!important}
