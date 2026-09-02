@@ -839,8 +839,10 @@ const LAZADA_DEFAULT_MAP = {
   'promo pass fee': 'freightOutExpense',
   'free shipping max fee': 'freightOutExpense',
   'promo pass fee free shipping max fee': 'freightOutExpense',
+  'promo pass fee free shipping max': 'freightOutExpense',
   'lazcoins discount promotion fee': 'advertisingExpense',
-  'order processing fee': 'orderProcessingFee',
+  // Order Processing Fee is added to Commission per user's rule
+  'order processing fee': 'commissionExpense',
   'lazcoins discount': 'advertisingExpense',
   'shipping fee subsidy': 'freightOutExpense',
   'shipping fee subsidy by seller': 'freightOutExpense'
