@@ -815,10 +815,10 @@ app.delete('/api/records/:id/income', async (req, res) => {
 
 const DEDUCTION_KEY_ALIASES = {
   commissionexpense: 'commissionExpense', commission: 'commissionExpense', commissionfee: 'commissionExpense',
-  advertisingexpense: 'advertisingExpense', advertising: 'advertisingExpense', advertisementfee: 'advertisingExpense', adfee: 'advertisingExpense', ads: 'advertisingExpense',
+  advertisingexpense: 'advertisingExpense', advertisingexpenses: 'advertisingExpense', advertising: 'advertisingExpense', advertisementfee: 'advertisingExpense', adfee: 'advertisingExpense', ads: 'advertisingExpense',
   freightoutexpense: 'freightOutExpense', freightoutexpenses: 'freightOutExpense', freightout: 'freightOutExpense', freight: 'freightOutExpense', shipping: 'freightOutExpense', shippingfee: 'freightOutExpense',
   withholdingtax: 'withHoldingTax', wht: 'withHoldingTax', holdingtax: 'withHoldingTax',
-  paymentfee: 'paymentFee', payment: 'paymentFee',
+  paymentfee: 'paymentFee', paymetfee: 'paymentFee', payment: 'paymentFee',
   orderprocessingfee: 'orderProcessingFee', orderprocessing: 'orderProcessingFee', processingfee: 'orderProcessingFee'
 };
 function normalizeDeductionKey(v) {
@@ -826,6 +826,76 @@ function normalizeDeductionKey(v) {
   return s ? (DEDUCTION_KEY_ALIASES[s] || null) : null;
 }
 function normalizeOrder(v) { return String(v == null ? '' : v).trim(); }
+function normalizeLabel(v) {
+  return String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Hard-coded fallback so auto-fill still works even if Lazada_Deductions sheet is empty or missing rows.
+// Sheet mapping (if present) overrides this.
+const LAZADA_DEFAULT_MAP = {
+  'payment fee': 'paymentFee',
+  'commission': 'commissionExpense',
+  'commission fee': 'commissionExpense',
+  'promo pass fee': 'freightOutExpense',
+  'free shipping max fee': 'freightOutExpense',
+  'promo pass fee free shipping max fee': 'freightOutExpense',
+  'lazcoins discount promotion fee': 'advertisingExpense',
+  'order processing fee': 'orderProcessingFee',
+  'lazcoins discount': 'advertisingExpense',
+  'shipping fee subsidy': 'freightOutExpense',
+  'shipping fee subsidy by seller': 'freightOutExpense'
+};
+
+function buildLazadaMapping(mapRows) {
+  const mapping = Object.assign({}, LAZADA_DEFAULT_MAP);
+  mapRows.slice(2).forEach(r => {
+    const label = normalizeLabel(r?.[1]);
+    const target = normalizeDeductionKey(r?.[2]);
+    if (label && target) mapping[label] = target; // sheet overrides fallback
+  });
+  return mapping;
+}
+
+function parseLazadaDate(raw) {
+  if (raw == null) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const mdy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (mdy) {
+    const yy = mdy[3].length === 2 ? '20' + mdy[3] : mdy[3];
+    return `${yy}-${String(mdy[1]).padStart(2, '0')}-${String(mdy[2]).padStart(2, '0')}`;
+  }
+  try {
+    const d = new Date(s);
+    if (!isNaN(d)) return d.toISOString().slice(0, 10);
+  } catch (e) { /* leave blank */ }
+  return '';
+}
+
+function computeLazadaFillForOrder(orderNumber, incData, mapping, confData, price) {
+  const matched = incData.filter(r => normalizeOrder(r?.[10]) === orderNumber);
+  if (!matched.length) return null;
+  const fill = { transactionDate: '', commissionExpense: 0, advertisingExpense: 0, freightOutExpense: 0, withHoldingTax: 0, paymentFee: 0, orderProcessingFee: 0, paymentMode: '' };
+  const unmapped = new Set();
+  fill.transactionDate = parseLazadaDate(matched[0]?.[2]);
+  matched.forEach(r => {
+    const label = normalizeLabel(r?.[3]);
+    const raw = Number(String(r?.[4] || '0').replace(/[^0-9.-]/g, ''));
+    const val = Math.abs(Number.isFinite(raw) ? raw : 0);
+    if (!label || val === 0) return;
+    const target = mapping[label];
+    if (target && Object.prototype.hasOwnProperty.call(fill, target)) fill[target] += val;
+    else unmapped.add(String(r?.[3] || ''));
+  });
+  const confMatch = (confData || []).find(r => normalizeOrder(r?.[12]) === orderNumber);
+  if (confMatch) fill.paymentMode = String(confMatch[45] || '').trim();
+  ['commissionExpense', 'advertisingExpense', 'freightOutExpense', 'withHoldingTax', 'paymentFee', 'orderProcessingFee'].forEach(k => { fill[k] = +fill[k].toFixed(2); });
+  const totalDed = fill.commissionExpense + fill.advertisingExpense + fill.freightOutExpense + fill.withHoldingTax + fill.paymentFee + fill.orderProcessingFee;
+  fill.netTotal = +((Number(price) || 0) - totalDed).toFixed(2);
+  return { fill, unmapped: Array.from(unmapped) };
+}
 
 app.get('/api/records/:id/lazada-fill', async (req, res) => {
   try {
@@ -835,70 +905,89 @@ app.get('/api/records/:id/lazada-fill', async (req, res) => {
     const orderNumber = normalizeOrder(recordRows[idx][13]); // col N
     if (!orderNumber) return res.json({ status: 'pending', warning: 'This record has no Order Number — still pending.' });
 
-    // Lazada_Deductions mapping (skip 2 header rows)
+    // Lazada_Deductions mapping (skip 2 header rows) with fallback defaults
     let mapRows = [];
     try { mapRows = await getValues(LAZADA_DEDUCTIONS_SHEET); } catch (e) { console.warn('Lazada_Deductions read failed:', e.message); }
-    const mapping = {};
-    mapRows.slice(2).forEach(r => {
-      const label = String(r?.[1] || '').trim();
-      const target = normalizeDeductionKey(r?.[2]);
-      if (label && target) mapping[label.toLowerCase()] = target;
-    });
+    const mapping = buildLazadaMapping(mapRows);
 
     // IncomeDetails rows for this order (skip 2 header rows, col K = index 10)
     let incRows = [];
     try { incRows = await getValues(INCOME_DETAILS_SHEET); } catch (e) { console.warn('IncomeDetails read failed:', e.message); }
-    const matched = incRows.slice(2).filter(r => normalizeOrder(r?.[10]) === orderNumber);
-    console.log('[lazada-fill] order=%s inc.rows=%d map=%d matched=%d', orderNumber, incRows.length, Object.keys(mapping).length, matched.length);
-    if (!matched.length) return res.json({ status: 'pending', warning: 'No IncomeDetails rows matched Order # ' + orderNumber + ' — still pending.', debug: { orderNumber, incomeRowCount: incRows.length, mapCount: Object.keys(mapping).length } });
+    const incData = incRows.slice(2);
 
-    const fill = { transactionDate: '', commissionExpense: 0, advertisingExpense: 0, freightOutExpense: 0, withHoldingTax: 0, paymentFee: 0, orderProcessingFee: 0, paymentMode: '' };
-    const unmapped = new Set();
+    // Confirmed sheet for paymentMode
+    let confData = [];
+    try { const cr = await getValuesRange(CONFIRMED_SHEET, 'A:BA'); confData = cr.slice(2); } catch (e) { /* best-effort */ }
 
-    // Transaction Date from first matching row col C (index 2)
-    const rawDate = matched[0]?.[2];
-    if (rawDate) {
-      const s = String(rawDate).trim();
-      const isoStart = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      const mdy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
-      if (isoStart) {
-        fill.transactionDate = `${isoStart[1]}-${isoStart[2]}-${isoStart[3]}`;
-      } else if (mdy) {
-        const yy = mdy[3].length === 2 ? '20' + mdy[3] : mdy[3];
-        fill.transactionDate = `${yy}-${String(mdy[1]).padStart(2, '0')}-${String(mdy[2]).padStart(2, '0')}`;
-      } else {
-        try {
-          const d = new Date(s);
-          if (!isNaN(d)) fill.transactionDate = d.toISOString().slice(0, 10);
-        } catch (e) { /* leave blank */ }
+    const price = Number(String(recordRows[idx][3] || '0').replace(/[^0-9.-]/g, '')) || 0;
+    const result = computeLazadaFillForOrder(orderNumber, incData, mapping, confData, price);
+    console.log('[lazada-fill] order=%s inc.rows=%d map=%d matched=%s', orderNumber, incRows.length, Object.keys(mapping).length, result ? 'yes' : 'no');
+    if (!result) return res.json({ status: 'pending', warning: 'No IncomeDetails rows matched Order # ' + orderNumber + ' — still pending.', debug: { orderNumber, incomeRowCount: incRows.length, mapCount: Object.keys(mapping).length } });
+
+    res.json({ status: 'ok', fill: result.fill, unmappedLabels: result.unmapped });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+// Bulk recompute — walks every record with an order number, matches IncomeDetails, and rewrites deductions in one batchUpdate call.
+app.post('/api/records/lazada-recompute', async (req, res) => {
+  try {
+    const recordRows = await getValues(RECORDS_SHEET);
+    let mapRows = [];
+    try { mapRows = await getValues(LAZADA_DEDUCTIONS_SHEET); } catch (e) { /* fallback map still used */ }
+    const mapping = buildLazadaMapping(mapRows);
+    let incRows = [];
+    try { incRows = await getValues(INCOME_DETAILS_SHEET); } catch (e) { /* silent */ }
+    const incData = incRows.slice(2);
+    let confData = [];
+    try { const cr = await getValuesRange(CONFIRMED_SHEET, 'A:BA'); confData = cr.slice(2); } catch (e) { /* silent */ }
+
+    const updates = [];
+    const unmappedAll = new Set();
+    let scanned = 0, matched = 0;
+    for (let i = 1; i < recordRows.length; i++) {
+      const row = recordRows[i];
+      if (!row?.[0]) continue;
+      scanned++;
+      const orderNumber = normalizeOrder(row[13]);
+      if (!orderNumber) continue;
+      const price = Number(String(row[3] || '0').replace(/[^0-9.-]/g, '')) || 0;
+      const result = computeLazadaFillForOrder(orderNumber, incData, mapping, confData, price);
+      if (!result) continue;
+      matched++;
+      result.unmapped.forEach(u => unmappedAll.add(u));
+      const source = String(row[21] || ''); // preserve col V
+      const rowNumber = i + 1;
+      const f = result.fill;
+      updates.push({
+        range: `'${RECORDS_SHEET}'!O${rowNumber}:X${rowNumber}`,
+        values: [[
+          f.transactionDate,
+          f.commissionExpense,
+          f.advertisingExpense,
+          f.freightOutExpense,
+          f.withHoldingTax,
+          f.netTotal,
+          f.paymentMode,
+          source,
+          f.paymentFee,
+          f.orderProcessingFee
+        ]]
+      });
+    }
+    if (updates.length) {
+      // Chunk to keep request size safe (Sheets values:batchUpdate handles many ranges but keep <100 per call)
+      const chunkSize = 80;
+      for (let s = 0; s < updates.length; s += chunkSize) {
+        const chunk = updates.slice(s, s + chunkSize);
+        await google(`/values:batchUpdate`, {
+          method: 'POST',
+          body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: chunk })
+        });
       }
     }
-
-    // Aggregate deductions
-    matched.forEach(r => {
-      const label = String(r?.[3] || '').trim();
-      const raw = Number(String(r?.[4] || '0').replace(/[^0-9.-]/g, ''));
-      const val = Math.abs(Number.isFinite(raw) ? raw : 0);
-      if (!label) return;
-      const target = mapping[label.toLowerCase()];
-      if (target && Object.prototype.hasOwnProperty.call(fill, target)) fill[target] += val;
-      else if (val > 0) unmapped.add(label);
-    });
-
-    // Payment mode from Confirmed sheet (col M = index 12 orderNumber, col AT = index 45 paymentMode)
-    try {
-      const confRows = await getValuesRange(CONFIRMED_SHEET, 'A:BA');
-      const confMatch = confRows.slice(2).find(r => normalizeOrder(r?.[12]) === orderNumber);
-      if (confMatch) fill.paymentMode = String(confMatch[45] || '').trim();
-    } catch (e) { /* payment mode is best-effort */ }
-
-    // Round to 2 dp
-    ['commissionExpense', 'advertisingExpense', 'freightOutExpense', 'withHoldingTax', 'paymentFee', 'orderProcessingFee'].forEach(k => {
-      fill[k] = +fill[k].toFixed(2);
-    });
-
-    res.json({ status: 'ok', fill, unmappedLabels: Array.from(unmapped) });
-  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+    console.log('[lazada-recompute] scanned=%d matched=%d updated=%d unmapped=%d', scanned, matched, updates.length, unmappedAll.size);
+    res.json({ ok: true, scanned, matched, updated: updates.length, unmappedLabels: Array.from(unmappedAll) });
+  } catch (error) { console.error('[lazada-recompute] failed:', error.message); res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
 });
 
 const page = String.raw`<!doctype html>
@@ -1496,7 +1585,7 @@ main.shell > *{max-width:100%}
 <div class="view" id="viewPaid" hidden>
 <section class="workspace cost-workspace">
 <div class="content">
-<section class="panel table-panel"><div class="panel-title"><h3>Paid Orders</h3><span id="paidCount">0 orders</span></div><div class="toolbar"><div class="search"><input id="paidSearch" type="search" placeholder="Search customer, product, address, license…" aria-label="Search paid"></div><select id="paidProductFilter" aria-label="Filter by product"><option value="">All products</option></select><select id="paidDateFilter" aria-label="Filter by date"><option value="">All dates</option><option value="month">This month</option><option value="30">Last 30 days</option><option value="year">This year</option></select><select id="paidSourceFilter" aria-label="Filter by source"><option value="">All sources</option></select></div><div class="table-scroll"><table><thead><tr><th>Date</th><th>Customer</th><th>Order #</th><th>Product</th><th>Price</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead><tbody id="paidRows"></tbody></table><div class="empty" id="paidEmpty"><div class="empty-icon">✓</div><strong>No paid orders yet</strong><div>Post income details on a record to mark it as paid.</div></div></div></section>
+<section class="panel table-panel"><div class="panel-title"><h3>Paid Orders</h3><div class="cost-log-tools"><span id="paidCount">0 orders</span><button type="button" class="btn primary btn-sm" id="lazadaRecomputeBtn" title="Re-run Lazada auto-fill on every order">↻ Recompute Lazada</button></div></div><div class="toolbar"><div class="search"><input id="paidSearch" type="search" placeholder="Search customer, product, address, license…" aria-label="Search paid"></div><select id="paidProductFilter" aria-label="Filter by product"><option value="">All products</option></select><select id="paidDateFilter" aria-label="Filter by date"><option value="">All dates</option><option value="month">This month</option><option value="30">Last 30 days</option><option value="year">This year</option></select><select id="paidSourceFilter" aria-label="Filter by source"><option value="">All sources</option></select></div><div class="table-scroll"><table><thead><tr><th>Date</th><th>Customer</th><th>Order #</th><th>Product</th><th>Price</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead><tbody id="paidRows"></tbody></table><div class="empty" id="paidEmpty"><div class="empty-icon">✓</div><strong>No paid orders yet</strong><div>Post income details on a record to mark it as paid.</div></div></div></section>
 </div>
 </section>
 </div>
@@ -1787,6 +1876,7 @@ main.shell > *{max-width:100%}
   $('costOrderNumber').addEventListener('change',function(){populateCostItems(this.value)});$('costForm').onsubmit=saveCostEntry;$('costResetBtn').onclick=clearCostForm;$('costDate').value=today();var costSearchEl=$('costSearch');if(costSearchEl)costSearchEl.addEventListener('input',renderCostLog);
   $('costRouterPicker').addEventListener('change',function(){var v=this.value;if(v===''||v===null)return;var idx=Number(v);var m=routerMaterials[idx];if(!m)return;selectedRouters.push({idx:idx,qty:1,amount:Number(m.amount)||0,supplier:''});renderSelectedRouters()});
   $('costOthersOrderNumber').addEventListener('change',function(){populateCostOthersForm(this.value)});$('costOthersForm').onsubmit=saveCostOthersEntry;$('costOthersResetBtn').onclick=clearCostOthersForm;$('costOthersDate').value=today();
+  var lazadaBtn=$('lazadaRecomputeBtn');if(lazadaBtn){lazadaBtn.onclick=async function(){if(!confirm('Recompute deductions for every order using the latest Lazada mapping? This overwrites current values on any order that has IncomeDetails rows.'))return;lazadaBtn.disabled=true;var oldText=lazadaBtn.textContent;lazadaBtn.textContent='Recomputing…';try{var res=await api('/api/records/lazada-recompute',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});var msg='✓ Recomputed '+res.updated+' of '+res.scanned+' records ('+res.matched+' with Lazada data).';if(res.unmappedLabels&&res.unmappedLabels.length)msg+=' Unmapped labels: '+res.unmappedLabels.join(', ');toast(msg);await loadRecords()}catch(err){toast('Recompute failed: '+(err.message||'unknown error'),true)}finally{lazadaBtn.disabled=false;lazadaBtn.textContent=oldText}}}
   $('description').addEventListener('change',toggleLicenseField);
   setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter','sourceFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});['paidSearch','paidProductFilter','paidDateFilter','paidSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='paidSearch'?'input':'change',renderPaid)});['pendingSearch','pendingProductFilter','pendingDateFilter','pendingSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='pendingSearch'?'input':'change',renderPending)});['idSearch','idProductFilter','idDateFilter','idSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='idSearch'?'input':'change',renderIncomeDetails)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials(),loadRouters(),loadCosts(),loadOthersCost()]).then(loadRecords).then(function(){refreshCostOrderOptions();refreshCostOthersOrderOptions();toggleLicenseField()}).catch(function(e){toast(e.message,true);loadRecords()});
 })();
