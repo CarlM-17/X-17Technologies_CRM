@@ -11,6 +11,9 @@ const SOURCES_SHEET = process.env.GOOGLE_SOURCES_SHEET || 'Source';
 const RAW_MATERIALS_SHEET = process.env.GOOGLE_RAW_MATERIALS_SHEET || 'RawMaterials';
 const ROUTER_SHEET = process.env.GOOGLE_ROUTER_SHEET || 'Router';
 const OTHERS_COST_SHEET = process.env.GOOGLE_OTHERS_COST_SHEET || 'OthersCost&Expenses';
+const INCOME_DETAILS_SHEET = process.env.GOOGLE_INCOME_DETAILS_SHEET || 'IncomeDetails';
+const LAZADA_DEDUCTIONS_SHEET = process.env.GOOGLE_LAZADA_DEDUCTIONS_SHEET || 'Lazada_Deductions';
+const CONFIRMED_SHEET = process.env.GOOGLE_CONFIRMED_SHEET || 'Confirmed';
 const COSTS_SHEET = process.env.GOOGLE_COSTS_SHEET || 'Cost & Expenses';
 const COST_HEADERS = ['ID', 'Date', 'Order Number', 'Description', 'QTY', 'Amount', 'Total', 'Created At', 'Supplier'];
 const OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
@@ -294,6 +297,21 @@ async function getValues(sheet) {
   if (token) {
     try {
       const data = await google(`/values/${encodeURIComponent(`'${sheet}'!A:Z`)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`);
+      return data.values || [];
+    } catch (error) {
+      if (!String(error.message).toLowerCase().includes('unable to parse range')) throw error;
+      return [];
+    }
+  }
+  return publicSheet(sheet);
+}
+
+async function getValuesRange(sheet, range) {
+  const token = await accessToken();
+  if (token) {
+    try {
+      const r = range || 'A:Z';
+      const data = await google(`/values/${encodeURIComponent(`'${sheet}'!${r}`)}?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=FORMATTED_STRING`);
       return data.values || [];
     } catch (error) {
       if (!String(error.message).toLowerCase().includes('unable to parse range')) throw error;
@@ -792,6 +810,91 @@ app.delete('/api/records/:id/income', async (req, res) => {
       method: 'PUT', body: JSON.stringify({ values: [[...incomeCells(BLANK_INCOME), source, ...incomeExtraCells(BLANK_INCOME)]] })
     });
     res.status(204).end();
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+const DEDUCTION_KEY_ALIASES = {
+  commissionexpense: 'commissionExpense', commission: 'commissionExpense', commissionfee: 'commissionExpense',
+  advertisingexpense: 'advertisingExpense', advertising: 'advertisingExpense', advertisementfee: 'advertisingExpense', adfee: 'advertisingExpense', ads: 'advertisingExpense',
+  freightoutexpense: 'freightOutExpense', freightoutexpenses: 'freightOutExpense', freightout: 'freightOutExpense', freight: 'freightOutExpense', shipping: 'freightOutExpense', shippingfee: 'freightOutExpense',
+  withholdingtax: 'withHoldingTax', wht: 'withHoldingTax', holdingtax: 'withHoldingTax',
+  paymentfee: 'paymentFee', payment: 'paymentFee',
+  orderprocessingfee: 'orderProcessingFee', orderprocessing: 'orderProcessingFee', processingfee: 'orderProcessingFee'
+};
+function normalizeDeductionKey(v) {
+  const s = String(v || '').trim().toLowerCase().replace(/[^a-z]/g, '');
+  return s ? (DEDUCTION_KEY_ALIASES[s] || null) : null;
+}
+function normalizeOrder(v) { return String(v == null ? '' : v).trim(); }
+
+app.get('/api/records/:id/lazada-fill', async (req, res) => {
+  try {
+    const recordRows = await getValues(RECORDS_SHEET);
+    const idx = recordRows.findIndex((r, i) => i > 0 && String(r?.[0]) === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Record not found.' });
+    const orderNumber = normalizeOrder(recordRows[idx][13]); // col N
+    if (!orderNumber) return res.json({ status: 'pending', warning: 'This record has no Order Number — still pending.' });
+
+    // Lazada_Deductions mapping (skip 2 header rows)
+    const mapRows = await getValues(LAZADA_DEDUCTIONS_SHEET);
+    const mapping = {};
+    mapRows.slice(2).forEach(r => {
+      const label = String(r?.[1] || '').trim();
+      const target = normalizeDeductionKey(r?.[2]);
+      if (label && target) mapping[label.toLowerCase()] = target;
+    });
+
+    // IncomeDetails rows for this order (skip 2 header rows, col K = index 10)
+    const incRows = await getValues(INCOME_DETAILS_SHEET);
+    const matched = incRows.slice(2).filter(r => normalizeOrder(r?.[10]) === orderNumber);
+    if (!matched.length) return res.json({ status: 'pending', warning: 'No IncomeDetails rows for this order — still pending.' });
+
+    const fill = { transactionDate: '', commissionExpense: 0, advertisingExpense: 0, freightOutExpense: 0, withHoldingTax: 0, paymentFee: 0, orderProcessingFee: 0, paymentMode: '' };
+    const unmapped = new Set();
+
+    // Transaction Date from first matching row col C (index 2)
+    const rawDate = matched[0]?.[2];
+    if (rawDate) {
+      const s = String(rawDate).trim();
+      const isoStart = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      const mdy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if (isoStart) {
+        fill.transactionDate = `${isoStart[1]}-${isoStart[2]}-${isoStart[3]}`;
+      } else if (mdy) {
+        const yy = mdy[3].length === 2 ? '20' + mdy[3] : mdy[3];
+        fill.transactionDate = `${yy}-${String(mdy[1]).padStart(2, '0')}-${String(mdy[2]).padStart(2, '0')}`;
+      } else {
+        try {
+          const d = new Date(s);
+          if (!isNaN(d)) fill.transactionDate = d.toISOString().slice(0, 10);
+        } catch (e) { /* leave blank */ }
+      }
+    }
+
+    // Aggregate deductions
+    matched.forEach(r => {
+      const label = String(r?.[3] || '').trim();
+      const raw = Number(String(r?.[4] || '0').replace(/[^0-9.-]/g, ''));
+      const val = Math.abs(Number.isFinite(raw) ? raw : 0);
+      if (!label) return;
+      const target = mapping[label.toLowerCase()];
+      if (target && Object.prototype.hasOwnProperty.call(fill, target)) fill[target] += val;
+      else if (val > 0) unmapped.add(label);
+    });
+
+    // Payment mode from Confirmed sheet (col M = index 12 orderNumber, col AT = index 45 paymentMode)
+    try {
+      const confRows = await getValuesRange(CONFIRMED_SHEET, 'A:BA');
+      const confMatch = confRows.slice(2).find(r => normalizeOrder(r?.[12]) === orderNumber);
+      if (confMatch) fill.paymentMode = String(confMatch[45] || '').trim();
+    } catch (e) { /* payment mode is best-effort */ }
+
+    // Round to 2 dp
+    ['commissionExpense', 'advertisingExpense', 'freightOutExpense', 'withHoldingTax', 'paymentFee', 'orderProcessingFee'].forEach(k => {
+      fill[k] = +fill[k].toFixed(2);
+    });
+
+    res.json({ status: 'ok', fill, unmappedLabels: Array.from(unmapped) });
   } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
 });
 
@@ -1625,7 +1728,7 @@ main.shell > *{max-width:100%}
   var INCOME_FIELDS=['incTxDate','incCommission','incAdvertising','incFreight','incWHT','incPaymentFee','incOrderProcessingFee','incNetTotal','incPaymentMode'];
   var INCOME_KEYS=['transactionDate','commissionExpense','advertisingExpense','freightOutExpense','withHoldingTax','paymentFee','orderProcessingFee','netTotal','paymentMode'];
   function computeIncomeNet(){var rec=records.find(function(v){return v.id===incomeCurrentId});var price=rec?Number(rec.price)||0:0;var c=Number($('incCommission').value)||0,a=Number($('incAdvertising').value)||0,f=Number($('incFreight').value)||0,w=Number($('incWHT').value)||0,pf=Number($('incPaymentFee').value)||0,op=Number($('incOrderProcessingFee').value)||0;var net=price-c-a-f-w-pf-op;if(!incomeNetTouched)$('incNetTotal').value=(Math.round(net*100)/100).toFixed(2)}
-  function openIncomeModal(id){var r=records.find(function(v){return v.id===id});if(!r)return;incomeCurrentId=id;incomeNetTouched=Boolean(r.netTotal);INCOME_FIELDS.forEach(function(fid,i){var el=$(fid),val=r[INCOME_KEYS[i]];el.value=val==null?'':val});$('incomeContext').innerHTML='<strong>'+esc(r.customerName||'Customer')+'</strong> · '+esc(r.description||'—')+' · Gross '+money(r.price);var posted=hasIncome(r);$('incomeTitle').textContent=posted?'Edit Deductions':'Enter Deductions';$('incomeSaveBtn').textContent=posted?'✓ Save changes':'＋ Save deductions';$('incomeDeleteBtn').disabled=!posted;$('incomeModal').className='income-viewer show';if(!posted&&!$('incTxDate').value)$('incTxDate').value=today();computeIncomeNet()}
+  async function openIncomeModal(id){var r=records.find(function(v){return v.id===id});if(!r)return;incomeCurrentId=id;incomeNetTouched=Boolean(r.netTotal);INCOME_FIELDS.forEach(function(fid,i){var el=$(fid),val=r[INCOME_KEYS[i]];el.value=val==null?'':val});$('incomeContext').innerHTML='<strong>'+esc(r.customerName||'Customer')+'</strong> · '+esc(r.description||'—')+' · Gross '+money(r.price);var posted=hasIncome(r);$('incomeTitle').textContent=posted?'Edit Deductions':'Enter Deductions';$('incomeSaveBtn').textContent=posted?'✓ Save changes':'＋ Save deductions';$('incomeDeleteBtn').disabled=!posted;$('incomeModal').className='income-viewer show';if(!posted&&!$('incTxDate').value)$('incTxDate').value=today();computeIncomeNet();try{var d=await api('/api/records/'+encodeURIComponent(id)+'/lazada-fill');if(!d)return;if(d.status==='pending'){toast(d.warning||'No IncomeDetails match — still pending.',true);return}if(d.status==='ok'&&d.fill){var f=d.fill;if(f.transactionDate)$('incTxDate').value=f.transactionDate;var fillMap={commissionExpense:'incCommission',advertisingExpense:'incAdvertising',freightOutExpense:'incFreight',withHoldingTax:'incWHT',paymentFee:'incPaymentFee',orderProcessingFee:'incOrderProcessingFee'};Object.keys(fillMap).forEach(function(k){if(typeof f[k]==='number'){var el=$(fillMap[k]);if(el)el.value=(Math.round(f[k]*100)/100).toFixed(2)}});if(f.paymentMode)$('incPaymentMode').value=f.paymentMode;incomeNetTouched=false;computeIncomeNet();if(Array.isArray(d.unmappedLabels)&&d.unmappedLabels.length){toast('⚠ Unmapped Lazada labels — add to Lazada_Deductions: '+d.unmappedLabels.join(', '),true)}else{toast('Auto-filled from Lazada.')}}}catch(err){/* auto-fill best-effort */}}
   function closeIncomeModal(){$('incomeModal').className='income-viewer';incomeCurrentId='';incomeNetTouched=false;$('incomeForm').reset()}
   async function saveIncome(e){e.preventDefault();if(!incomeCurrentId)return;var body={};new FormData(e.target).forEach(function(v,k){body[k]=v});var btn=$('incomeSaveBtn');btn.disabled=true;btn.textContent='Saving…';try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(body)});toast('Deductions saved to Google Sheets.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false}}
   async function deleteIncome(){if(!incomeCurrentId)return;var r=records.find(function(v){return v.id===incomeCurrentId});if(!confirm('Delete the deductions for '+(r?r.customerName:'this record')+'? The customer record itself will be kept.'))return;var btn=$('incomeDeleteBtn');btn.disabled=true;try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'DELETE'});toast('Deductions cleared.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false}}
