@@ -14,6 +14,29 @@ const OTHERS_COST_SHEET = process.env.GOOGLE_OTHERS_COST_SHEET || 'OthersCost&Ex
 const INCOME_DETAILS_SHEET = process.env.GOOGLE_INCOME_DETAILS_SHEET || 'IncomeDetails';
 const LAZADA_DEDUCTIONS_SHEET = process.env.GOOGLE_LAZADA_DEDUCTIONS_SHEET || 'Lazada_Deductions';
 const CONFIRMED_SHEET = process.env.GOOGLE_CONFIRMED_SHEET || 'Confirmed';
+const SHOPEE_SHEET = process.env.GOOGLE_SHOPEE_SHEET || 'IncomeShopee';
+const SHOPEE_DEDUCTIONS_SHEET = process.env.GOOGLE_SHOPEE_DEDUCTIONS_SHEET || 'ShopeeDeductions';
+
+// Fixed Shopee column layout — each fee lives in a dedicated column, values are typically negative.
+const SHOPEE_COLS = {
+  order: 1,      // B
+  payment: 5,    // F  (Buyer Payment Method)
+  date: 10       // K  (Transaction Date)
+};
+const SHOPEE_FEE_COLS = [
+  { name: 'Commission Fee',     col: 26 }, // AA
+  { name: 'Service Fee',        col: 27 }, // AB
+  { name: 'Support Program Fee',col: 28 }, // AC
+  { name: 'Transaction Fee',    col: 29 }, // AD
+  { name: 'Withholding Tax',    col: 30 }  // AE
+];
+const SHOPEE_DEFAULT_MAP = {
+  'commission fee':      'commissionExpense',
+  'service fee':         'commissionExpense',
+  'support program fee': 'advertisingExpense',
+  'transaction fee':     'commissionExpense',
+  'withholding tax':     'withHoldingTax'
+};
 const COSTS_SHEET = process.env.GOOGLE_COSTS_SHEET || 'Cost & Expenses';
 const COST_HEADERS = ['ID', 'Date', 'Order Number', 'Description', 'QTY', 'Amount', 'Total', 'Created At', 'Supplier'];
 const OAUTH_CLIENT_ID = process.env.GOOGLE_OAUTH_CLIENT_ID || '';
@@ -878,6 +901,47 @@ function parseLazadaDate(raw) {
   return '';
 }
 
+function buildShopeeMapping(mapRows, opts) {
+  const forceFallback = opts && opts.forceFallback;
+  const mapping = Object.assign({}, SHOPEE_DEFAULT_MAP);
+  if (forceFallback) return mapping;
+  // Shopee mapping sheet has no banner — header at row 1, data from row 2.
+  (mapRows || []).slice(1).forEach(r => {
+    const label = normalizeLabel(r?.[0]); // col A = Fees Name in Shopee
+    const target = normalizeDeductionKey(r?.[1]); // col B = Fees Category
+    if (label && target) mapping[label] = target; // sheet overrides fallback
+  });
+  return mapping;
+}
+
+function computeShopeeFillForOrder(orderNumber, shopeeData, mapping, price) {
+  const row = (shopeeData || []).find(r => normalizeOrder(r?.[SHOPEE_COLS.order]) === orderNumber);
+  if (!row) return null;
+  const fill = { transactionDate: '', commissionExpense: 0, advertisingExpense: 0, freightOutExpense: 0, withHoldingTax: 0, paymentFee: 0, orderProcessingFee: 0, paymentMode: '' };
+  const unmapped = new Set();
+  const breakdown = [];
+  fill.transactionDate = parseLazadaDate(row?.[SHOPEE_COLS.date]);
+  fill.paymentMode = String(row?.[SHOPEE_COLS.payment] || '').trim();
+  SHOPEE_FEE_COLS.forEach(fc => {
+    const raw = Number(String(row?.[fc.col] || '0').replace(/[^0-9.-]/g, ''));
+    const val = Math.abs(Number.isFinite(raw) ? raw : 0);
+    if (val === 0) return;
+    const label = normalizeLabel(fc.name);
+    const target = mapping[label];
+    if (target && Object.prototype.hasOwnProperty.call(fill, target)) {
+      fill[target] += val;
+      breakdown.push({ label: fc.name, value: val, target });
+    } else {
+      unmapped.add(fc.name);
+      breakdown.push({ label: fc.name, value: val, target: null });
+    }
+  });
+  ['commissionExpense', 'advertisingExpense', 'freightOutExpense', 'withHoldingTax', 'paymentFee', 'orderProcessingFee'].forEach(k => { fill[k] = +fill[k].toFixed(2); });
+  const totalDed = fill.commissionExpense + fill.advertisingExpense + fill.freightOutExpense + fill.withHoldingTax + fill.paymentFee + fill.orderProcessingFee;
+  fill.netTotal = +((Number(price) || 0) - totalDed).toFixed(2);
+  return { fill, unmapped: Array.from(unmapped), breakdown };
+}
+
 function computeLazadaFillForOrder(orderNumber, incData, mapping, confData, price) {
   const matched = incData.filter(r => normalizeOrder(r?.[10]) === orderNumber);
   if (!matched.length) return null;
@@ -919,6 +983,63 @@ app.get('/api/lazada/available-orders', async (_req, res) => {
     });
     res.json({ orders: Array.from(orders) });
   } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
+app.get('/api/marketplace/available-orders', async (_req, res) => {
+  try {
+    let incRows = [];
+    try { incRows = await getValues(INCOME_DETAILS_SHEET); } catch (e) { console.warn('IncomeDetails read failed:', e.message); }
+    let shopRows = [];
+    try { shopRows = await getValuesRange(SHOPEE_SHEET, 'A:AZ'); } catch (e) { console.warn('IncomeShopee read failed:', e.message); }
+    const lazada = new Set();
+    incRows.slice(2).forEach(r => { const o = normalizeOrder(r?.[10]); if (o) lazada.add(o); });
+    const shopee = new Set();
+    shopRows.slice(2).forEach(r => { const o = normalizeOrder(r?.[SHOPEE_COLS.order]); if (o) shopee.add(o); });
+    res.json({ Lazada: Array.from(lazada), Shopee: Array.from(shopee) });
+  } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
+// Unified auto-fill — routes to Shopee or Lazada based on the record's Source column.
+app.get('/api/records/:id/auto-fill', async (req, res) => {
+  try {
+    const recordRows = await getValues(RECORDS_SHEET);
+    const idx = recordRows.findIndex((r, i) => i > 0 && String(r?.[0]) === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Record not found.' });
+    const row = recordRows[idx];
+    const orderNumber = normalizeOrder(row[13]); // col N
+    if (!orderNumber) return res.json({ status: 'pending', warning: 'This record has no Order Number — still pending.' });
+    const source = String(row[21] || '').trim(); // col V
+    const price = Number(String(row[3] || '0').replace(/[^0-9.-]/g, '')) || 0;
+    const forceFallback = String(req.query?.forceFallback || '') === '1';
+    const isShopee = /shopee/i.test(source);
+
+    if (isShopee) {
+      let mapRows = [];
+      try { mapRows = await getValues(SHOPEE_DEDUCTIONS_SHEET); } catch (e) { console.warn('ShopeeDeductions read failed:', e.message); }
+      const mapping = buildShopeeMapping(mapRows, { forceFallback });
+      let shopRows = [];
+      try { shopRows = await getValuesRange(SHOPEE_SHEET, 'A:AZ'); } catch (e) { console.warn('IncomeShopee read failed:', e.message); }
+      const shopData = shopRows.slice(2);
+      const result = computeShopeeFillForOrder(orderNumber, shopData, mapping, price);
+      console.log('[auto-fill:shopee] order=%s shop.rows=%d map=%d matched=%s', orderNumber, shopRows.length, Object.keys(mapping).length, result ? 'yes' : 'no');
+      if (!result) return res.json({ status: 'pending', warning: 'No IncomeShopee row matched Order # ' + orderNumber + ' — still pending.', debug: { orderNumber, source: 'Shopee', shopeeRowCount: shopRows.length, mapCount: Object.keys(mapping).length } });
+      return res.json({ status: 'ok', source: 'Shopee', fill: result.fill, unmappedLabels: result.unmapped, debug: { orderNumber, source: 'Shopee', forceFallback, mappingCount: Object.keys(mapping).length, breakdown: result.breakdown } });
+    }
+
+    // Default = Lazada
+    let mapRows = [];
+    try { mapRows = await getValues(LAZADA_DEDUCTIONS_SHEET); } catch (e) { console.warn('Lazada_Deductions read failed:', e.message); }
+    const mapping = buildLazadaMapping(mapRows, { forceFallback });
+    let incRows = [];
+    try { incRows = await getValues(INCOME_DETAILS_SHEET); } catch (e) { console.warn('IncomeDetails read failed:', e.message); }
+    const incData = incRows.slice(2);
+    let confData = [];
+    try { const cr = await getValuesRange(CONFIRMED_SHEET, 'A:BA'); confData = cr.slice(2); } catch (e) { /* best-effort */ }
+    const result = computeLazadaFillForOrder(orderNumber, incData, mapping, confData, price);
+    console.log('[auto-fill:lazada] order=%s inc.rows=%d map=%d matched=%s', orderNumber, incRows.length, Object.keys(mapping).length, result ? 'yes' : 'no');
+    if (!result) return res.json({ status: 'pending', warning: 'No IncomeDetails rows matched Order # ' + orderNumber + ' — still pending.', debug: { orderNumber, source: source || 'Lazada', incomeRowCount: incRows.length, mapCount: Object.keys(mapping).length } });
+    return res.json({ status: 'ok', source: 'Lazada', fill: result.fill, unmappedLabels: result.unmapped, debug: { orderNumber, source: source || 'Lazada', forceFallback, mappingCount: Object.keys(mapping).length, breakdown: result.breakdown } });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
 });
 
 app.get('/api/records/:id/lazada-fill', async (req, res) => {
@@ -963,35 +1084,46 @@ app.get('/api/records/:id/lazada-fill', async (req, res) => {
   } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
 });
 
-// Bulk recompute — walks every record with an order number, matches IncomeDetails, and rewrites deductions in one batchUpdate call.
-app.post('/api/records/lazada-recompute', async (req, res) => {
+// Bulk recompute — walks every record with an order number, routes by source (Shopee vs Lazada), and rewrites deductions in one batchUpdate call.
+async function marketplaceRecomputeHandler(req, res) {
   try {
     const forceFallback = Boolean(req.body?.forceFallback) || String(req.query?.forceFallback || '') === '1';
     const recordRows = await getValues(RECORDS_SHEET);
-    let mapRows = [];
-    try { mapRows = await getValues(LAZADA_DEDUCTIONS_SHEET); } catch (e) { /* fallback map still used */ }
-    const mapping = buildLazadaMapping(mapRows, { forceFallback });
+    // Lazada mapping/data
+    let lazMapRows = [];
+    try { lazMapRows = await getValues(LAZADA_DEDUCTIONS_SHEET); } catch (e) { /* fallback map still used */ }
+    const lazMapping = buildLazadaMapping(lazMapRows, { forceFallback });
     let incRows = [];
     try { incRows = await getValues(INCOME_DETAILS_SHEET); } catch (e) { /* silent */ }
     const incData = incRows.slice(2);
     let confData = [];
     try { const cr = await getValuesRange(CONFIRMED_SHEET, 'A:BA'); confData = cr.slice(2); } catch (e) { /* silent */ }
+    // Shopee mapping/data
+    let shopMapRows = [];
+    try { shopMapRows = await getValues(SHOPEE_DEDUCTIONS_SHEET); } catch (e) { /* fallback map still used */ }
+    const shopMapping = buildShopeeMapping(shopMapRows, { forceFallback });
+    let shopRows = [];
+    try { shopRows = await getValuesRange(SHOPEE_SHEET, 'A:AZ'); } catch (e) { /* silent */ }
+    const shopData = shopRows.slice(2);
 
     const updates = [];
     const unmappedAll = new Set();
-    let scanned = 0, matched = 0;
+    let scanned = 0, matchedLaz = 0, matchedShop = 0;
     for (let i = 1; i < recordRows.length; i++) {
       const row = recordRows[i];
       if (!row?.[0]) continue;
       scanned++;
       const orderNumber = normalizeOrder(row[13]);
       if (!orderNumber) continue;
+      const source = String(row[21] || ''); // col V
+      const isShopee = /shopee/i.test(source);
       const price = Number(String(row[3] || '0').replace(/[^0-9.-]/g, '')) || 0;
-      const result = computeLazadaFillForOrder(orderNumber, incData, mapping, confData, price);
+      const result = isShopee
+        ? computeShopeeFillForOrder(orderNumber, shopData, shopMapping, price)
+        : computeLazadaFillForOrder(orderNumber, incData, lazMapping, confData, price);
       if (!result) continue;
-      matched++;
+      if (isShopee) matchedShop++; else matchedLaz++;
       result.unmapped.forEach(u => unmappedAll.add(u));
-      const source = String(row[21] || ''); // preserve col V
       const rowNumber = i + 1;
       const f = result.fill;
       updates.push({
@@ -1004,14 +1136,13 @@ app.post('/api/records/lazada-recompute', async (req, res) => {
           f.withHoldingTax,
           f.netTotal,
           f.paymentMode,
-          source,
+          source, // preserve col V
           f.paymentFee,
           f.orderProcessingFee
         ]]
       });
     }
     if (updates.length) {
-      // Chunk to keep request size safe (Sheets values:batchUpdate handles many ranges but keep <100 per call)
       const chunkSize = 80;
       for (let s = 0; s < updates.length; s += chunkSize) {
         const chunk = updates.slice(s, s + chunkSize);
@@ -1021,10 +1152,12 @@ app.post('/api/records/lazada-recompute', async (req, res) => {
         });
       }
     }
-    console.log('[lazada-recompute] scanned=%d matched=%d updated=%d unmapped=%d', scanned, matched, updates.length, unmappedAll.size);
-    res.json({ ok: true, scanned, matched, updated: updates.length, unmappedLabels: Array.from(unmappedAll) });
-  } catch (error) { console.error('[lazada-recompute] failed:', error.message); res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
-});
+    console.log('[marketplace-recompute] scanned=%d lazada=%d shopee=%d updated=%d unmapped=%d', scanned, matchedLaz, matchedShop, updates.length, unmappedAll.size);
+    res.json({ ok: true, scanned, matched: matchedLaz + matchedShop, matchedLazada: matchedLaz, matchedShopee: matchedShop, updated: updates.length, unmappedLabels: Array.from(unmappedAll) });
+  } catch (error) { console.error('[marketplace-recompute] failed:', error.message); res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+}
+app.post('/api/records/lazada-recompute', marketplaceRecomputeHandler);
+app.post('/api/records/marketplace-recompute', marketplaceRecomputeHandler);
 
 const page = String.raw`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -1626,7 +1759,7 @@ main.shell > *{max-width:100%}
 <div class="view" id="viewPaid" hidden>
 <section class="workspace cost-workspace">
 <div class="content">
-<section class="panel table-panel"><div class="panel-title"><h3>Paid Orders</h3><div class="cost-log-tools"><span id="paidCount">0 orders</span><button type="button" class="btn primary btn-sm" id="lazadaRecomputeBtn" title="Re-run Lazada auto-fill on every order">↻ Recompute Lazada</button></div></div><div class="toolbar"><div class="search"><input id="paidSearch" type="search" placeholder="Search customer, product, address, license…" aria-label="Search paid"></div><select id="paidProductFilter" aria-label="Filter by product"><option value="">All products</option></select><select id="paidDateFilter" aria-label="Filter by date"><option value="">All dates</option><option value="month">This month</option><option value="30">Last 30 days</option><option value="year">This year</option></select><select id="paidSourceFilter" aria-label="Filter by source"><option value="">All sources</option></select></div><div class="table-scroll"><table><thead><tr><th>Date</th><th>Customer</th><th>Order #</th><th>Product</th><th>Price</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead><tbody id="paidRows"></tbody></table><div class="empty" id="paidEmpty"><div class="empty-icon">✓</div><strong>No paid orders yet</strong><div>Post income details on a record to mark it as paid.</div></div></div></section>
+<section class="panel table-panel"><div class="panel-title"><h3>Paid Orders</h3><div class="cost-log-tools"><span id="paidCount">0 orders</span><button type="button" class="btn primary btn-sm" id="lazadaRecomputeBtn" title="Re-run marketplace auto-fill on every order (Lazada + Shopee)">↻ Recompute Marketplace</button></div></div><div class="toolbar"><div class="search"><input id="paidSearch" type="search" placeholder="Search customer, product, address, license…" aria-label="Search paid"></div><select id="paidProductFilter" aria-label="Filter by product"><option value="">All products</option></select><select id="paidDateFilter" aria-label="Filter by date"><option value="">All dates</option><option value="month">This month</option><option value="30">Last 30 days</option><option value="year">This year</option></select><select id="paidSourceFilter" aria-label="Filter by source"><option value="">All sources</option></select></div><div class="table-scroll"><table><thead><tr><th>Date</th><th>Customer</th><th>Order #</th><th>Product</th><th>Price</th><th>Source</th><th>Status</th><th>Actions</th></tr></thead><tbody id="paidRows"></tbody></table><div class="empty" id="paidEmpty"><div class="empty-icon">✓</div><strong>No paid orders yet</strong><div>Post income details on a record to mark it as paid.</div></div></div></section>
 </div>
 </section>
 </div>
@@ -1861,7 +1994,7 @@ main.shell > *{max-width:100%}
   var INCOME_FIELDS=['incTxDate','incCommission','incAdvertising','incFreight','incWHT','incPaymentFee','incOrderProcessingFee','incNetTotal','incPaymentMode'];
   var INCOME_KEYS=['transactionDate','commissionExpense','advertisingExpense','freightOutExpense','withHoldingTax','paymentFee','orderProcessingFee','netTotal','paymentMode'];
   function computeIncomeNet(){var rec=records.find(function(v){return v.id===incomeCurrentId});var price=rec?Number(rec.price)||0:0;var c=Number($('incCommission').value)||0,a=Number($('incAdvertising').value)||0,f=Number($('incFreight').value)||0,w=Number($('incWHT').value)||0,pf=Number($('incPaymentFee').value)||0,op=Number($('incOrderProcessingFee').value)||0;var net=price-c-a-f-w-pf-op;if(!incomeNetTouched)$('incNetTotal').value=(Math.round(net*100)/100).toFixed(2)}
-  async function openIncomeModal(id){var r=records.find(function(v){return v.id===id});if(!r)return;incomeCurrentId=id;incomeNetTouched=Boolean(r.netTotal);INCOME_FIELDS.forEach(function(fid,i){var el=$(fid),val=r[INCOME_KEYS[i]];el.value=val==null?'':val});$('incomeContext').innerHTML='<strong>'+esc(r.customerName||'Customer')+'</strong> · '+esc(r.description||'—')+' · Gross '+money(r.price);var posted=hasIncome(r);$('incomeTitle').textContent=posted?'Edit Deductions':'Enter Deductions';$('incomeSaveBtn').textContent=posted?'✓ Save changes':'＋ Save deductions';$('incomeDeleteBtn').disabled=!posted;$('incomeModal').className='income-viewer show';if(!posted&&!$('incTxDate').value)$('incTxDate').value=today();computeIncomeNet();try{var d=await api('/api/records/'+encodeURIComponent(id)+'/lazada-fill');try{console.log('lazada-fill:',d)}catch(_){}if(!d){toast('Auto-fill returned no data.',true);return}if(d.status==='pending'){var w=d.warning||'No IncomeDetails match — still pending.';if(d.debug)w+=' [order='+d.debug.orderNumber+', inc='+d.debug.incomeRowCount+', map='+d.debug.mapCount+']';toast(w,true);return}if(d.status==='ok'&&d.fill){var f=d.fill;if(f.transactionDate)$('incTxDate').value=f.transactionDate;var fillMap={commissionExpense:'incCommission',advertisingExpense:'incAdvertising',freightOutExpense:'incFreight',withHoldingTax:'incWHT',paymentFee:'incPaymentFee',orderProcessingFee:'incOrderProcessingFee'};Object.keys(fillMap).forEach(function(k){if(typeof f[k]==='number'){var el=$(fillMap[k]);if(el)el.value=(Math.round(f[k]*100)/100).toFixed(2)}});if(f.paymentMode)$('incPaymentMode').value=f.paymentMode;incomeNetTouched=false;computeIncomeNet();if(Array.isArray(d.unmappedLabels)&&d.unmappedLabels.length){toast('⚠ Unmapped Lazada labels — add to Lazada_Deductions: '+d.unmappedLabels.join(', '),true)}else{toast('Auto-filled from Lazada.')}}}catch(err){try{console.error('lazada-fill error:',err)}catch(_){}toast('Auto-fill failed: '+(err.message||'unknown error'),true)}}
+  async function openIncomeModal(id){var r=records.find(function(v){return v.id===id});if(!r)return;incomeCurrentId=id;incomeNetTouched=Boolean(r.netTotal);INCOME_FIELDS.forEach(function(fid,i){var el=$(fid),val=r[INCOME_KEYS[i]];el.value=val==null?'':val});$('incomeContext').innerHTML='<strong>'+esc(r.customerName||'Customer')+'</strong> · '+esc(r.description||'—')+' · Gross '+money(r.price);var posted=hasIncome(r);$('incomeTitle').textContent=posted?'Edit Deductions':'Enter Deductions';$('incomeSaveBtn').textContent=posted?'✓ Save changes':'＋ Save deductions';$('incomeDeleteBtn').disabled=!posted;$('incomeModal').className='income-viewer show';if(!posted&&!$('incTxDate').value)$('incTxDate').value=today();computeIncomeNet();try{var d=await api('/api/records/'+encodeURIComponent(id)+'/auto-fill');try{console.log('auto-fill:',d)}catch(_){}if(!d){toast('Auto-fill returned no data.',true);return}if(d.status==='pending'){var w=d.warning||'No marketplace data — still pending.';toast(w,true);return}if(d.status==='ok'&&d.fill){var f=d.fill;var srcLabel=d.source||'marketplace';if(f.transactionDate)$('incTxDate').value=f.transactionDate;var fillMap={commissionExpense:'incCommission',advertisingExpense:'incAdvertising',freightOutExpense:'incFreight',withHoldingTax:'incWHT',paymentFee:'incPaymentFee',orderProcessingFee:'incOrderProcessingFee'};Object.keys(fillMap).forEach(function(k){if(typeof f[k]==='number'){var el=$(fillMap[k]);if(el)el.value=(Math.round(f[k]*100)/100).toFixed(2)}});if(f.paymentMode)$('incPaymentMode').value=f.paymentMode;incomeNetTouched=false;computeIncomeNet();if(Array.isArray(d.unmappedLabels)&&d.unmappedLabels.length){toast('⚠ Unmapped '+srcLabel+' labels — add to mapping sheet: '+d.unmappedLabels.join(', '),true)}else{toast('Auto-filled from '+srcLabel+'.')}}}catch(err){try{console.error('auto-fill error:',err)}catch(_){}toast('Auto-fill failed: '+(err.message||'unknown error'),true)}}
   function closeIncomeModal(){$('incomeModal').className='income-viewer';incomeCurrentId='';incomeNetTouched=false;$('incomeForm').reset()}
   async function saveIncome(e){e.preventDefault();if(!incomeCurrentId)return;var body={};new FormData(e.target).forEach(function(v,k){body[k]=v});var btn=$('incomeSaveBtn');btn.disabled=true;btn.textContent='Saving…';try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(body)});toast('Deductions saved to Google Sheets.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false}}
   async function deleteIncome(){if(!incomeCurrentId)return;var r=records.find(function(v){return v.id===incomeCurrentId});if(!confirm('Delete the deductions for '+(r?r.customerName:'this record')+'? The customer record itself will be kept.'))return;var btn=$('incomeDeleteBtn');btn.disabled=true;try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'DELETE'});toast('Deductions cleared.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false}}
@@ -1871,9 +2004,9 @@ main.shell > *{max-width:100%}
   document.querySelectorAll('.view-tab').forEach(function(b){b.onclick=function(){switchView(b.dataset.view)}});
   async function loadRawMaterials(){try{var d=await api('/api/raw-materials');rawMaterials=d.items||[]}catch(e){rawMaterials=[]}}
   async function loadRouters(){try{var d=await api('/api/routers');routerMaterials=d.items||[]}catch(e){routerMaterials=[]}refreshRouterPicker()}
-  var lazadaAvailableOrders={};
-  async function loadLazadaAvailableOrders(){try{var d=await api('/api/lazada/available-orders');lazadaAvailableOrders={};(d.orders||[]).forEach(function(o){lazadaAvailableOrders[String(o).trim()]=true})}catch(e){lazadaAvailableOrders={}}}
-  function hasLazadaData(r){return Boolean(r&&r.orderNumber&&lazadaAvailableOrders[String(r.orderNumber).trim()])}
+  var marketplaceAvailable={Lazada:{},Shopee:{}};
+  async function loadLazadaAvailableOrders(){try{var d=await api('/api/marketplace/available-orders');marketplaceAvailable={Lazada:{},Shopee:{}};(d.Lazada||[]).forEach(function(o){marketplaceAvailable.Lazada[String(o).trim()]=true});(d.Shopee||[]).forEach(function(o){marketplaceAvailable.Shopee[String(o).trim()]=true})}catch(e){marketplaceAvailable={Lazada:{},Shopee:{}}}}
+  function hasLazadaData(r){if(!r||!r.orderNumber)return false;var src=String(r.source||'').trim();var isShopee=/shopee/i.test(src);var bucket=isShopee?marketplaceAvailable.Shopee:marketplaceAvailable.Lazada;return Boolean(bucket&&bucket[String(r.orderNumber).trim()])}
   var othersCostItems=[],costOthersLine=null;
   function isNonVending(r){return r&&r.description&&!/vending/i.test(r.description)}
   async function loadOthersCost(){try{var d=await api('/api/others-cost');othersCostItems=d.items||[]}catch(e){othersCostItems=[]}}
@@ -1920,7 +2053,7 @@ main.shell > *{max-width:100%}
   $('costOrderNumber').addEventListener('change',function(){populateCostItems(this.value)});$('costForm').onsubmit=saveCostEntry;$('costResetBtn').onclick=clearCostForm;$('costDate').value=today();var costSearchEl=$('costSearch');if(costSearchEl)costSearchEl.addEventListener('input',renderCostLog);
   $('costRouterPicker').addEventListener('change',function(){var v=this.value;if(v===''||v===null)return;var idx=Number(v);var m=routerMaterials[idx];if(!m)return;selectedRouters.push({idx:idx,qty:1,amount:Number(m.amount)||0,supplier:''});renderSelectedRouters()});
   $('costOthersOrderNumber').addEventListener('change',function(){populateCostOthersForm(this.value)});$('costOthersForm').onsubmit=saveCostOthersEntry;$('costOthersResetBtn').onclick=clearCostOthersForm;$('costOthersDate').value=today();
-  var lazadaBtn=$('lazadaRecomputeBtn');if(lazadaBtn){lazadaBtn.onclick=async function(){var useFallback=confirm('Recompute deductions for every order using the latest Lazada mapping?\n\nClick OK to use the built-in code fallback ONLY (bypasses the Lazada_Deductions sheet — safest if the sheet has wrong mappings).\n\nClick Cancel to use the Lazada_Deductions sheet (with fallback filling gaps).');lazadaBtn.disabled=true;var oldText=lazadaBtn.textContent;lazadaBtn.textContent='Recomputing…';try{var res=await api('/api/records/lazada-recompute',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({forceFallback:useFallback})});try{console.log('lazada-recompute:',res)}catch(_){}var msg='✓ Recomputed '+res.updated+' of '+res.scanned+' records ('+res.matched+' with Lazada data)'+(useFallback?' — using code fallback only':'');if(res.unmappedLabels&&res.unmappedLabels.length)msg+='. ⚠ Unmapped: '+res.unmappedLabels.join(', ');toast(msg);await loadRecords()}catch(err){toast('Recompute failed: '+(err.message||'unknown error'),true)}finally{lazadaBtn.disabled=false;lazadaBtn.textContent=oldText}}}
+  var lazadaBtn=$('lazadaRecomputeBtn');if(lazadaBtn){lazadaBtn.onclick=async function(){var useFallback=confirm('Recompute deductions for every order using the latest marketplace mappings?\n\nRoutes each record by its Source column: Lazada → IncomeDetails, Shopee → IncomeShopee.\n\nClick OK to use the built-in code fallback ONLY (bypasses the mapping sheets — safest if a sheet has wrong mappings).\n\nClick Cancel to use the mapping sheets (with fallback filling gaps).');lazadaBtn.disabled=true;var oldText=lazadaBtn.textContent;lazadaBtn.textContent='Recomputing…';try{var res=await api('/api/records/marketplace-recompute',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({forceFallback:useFallback})});try{console.log('marketplace-recompute:',res)}catch(_){}var msg='✓ Recomputed '+res.updated+' of '+res.scanned+' records ('+(res.matchedLazada||0)+' Lazada + '+(res.matchedShopee||0)+' Shopee)'+(useFallback?' — using code fallback only':'');if(res.unmappedLabels&&res.unmappedLabels.length)msg+='. ⚠ Unmapped: '+res.unmappedLabels.join(', ');toast(msg);await loadLazadaAvailableOrders();await loadRecords()}catch(err){toast('Recompute failed: '+(err.message||'unknown error'),true)}finally{lazadaBtn.disabled=false;lazadaBtn.textContent=oldText}}}
   $('description').addEventListener('change',toggleLicenseField);
   setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter','sourceFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});['paidSearch','paidProductFilter','paidDateFilter','paidSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='paidSearch'?'input':'change',renderPaid)});['pendingSearch','pendingProductFilter','pendingDateFilter','pendingSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='pendingSearch'?'input':'change',renderPending)});['idSearch','idProductFilter','idDateFilter','idSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='idSearch'?'input':'change',renderIncomeDetails)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials(),loadRouters(),loadCosts(),loadOthersCost(),loadLazadaAvailableOrders()]).then(loadRecords).then(function(){refreshCostOrderOptions();refreshCostOthersOrderOptions();toggleLicenseField()}).catch(function(e){toast(e.message,true);loadRecords()});
 })();
