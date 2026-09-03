@@ -1546,11 +1546,29 @@ main.shell > *{max-width:100%}
 .cost-items-grid .cost-item select.supplier-select{cursor:pointer;appearance:auto}
 
 /* Sales Report tab — compact single-panel layout */
-.sales-inline-select{padding:6px 10px!important;font-size:12px!important;min-height:32px!important;border-radius:8px!important;font-weight:600;color:var(--muted);background:#fff;cursor:pointer}
-.sales-toolbar{gap:8px;flex-wrap:wrap}
-.sales-toolbar .search{flex:1;min-width:220px}
-.sales-toolbar select,.sales-toolbar input[type="date"]{min-width:130px;padding:9px 12px;font-size:13px;border-radius:10px;background:#fff}
-.sales-toolbar .btn{padding:9px 14px;font-size:12px;min-height:38px}
+/* CRITICAL: min-width:0 chain so the 2100px-wide table stays inside .table-scroll and doesn't blow out the page layout */
+#viewSalesExport{min-width:0;max-width:100%}
+#viewSalesExport .workspace{grid-template-columns:minmax(0,1fr)!important;min-width:0;max-width:100%}
+#viewSalesExport .content{min-width:0;max-width:100%;width:100%}
+#viewSalesExport .panel{min-width:0;max-width:100%;overflow:hidden}
+#viewSalesExport .table-scroll{overflow-x:auto;overflow-y:auto;max-height:min(70vh,720px);min-height:340px;min-width:0;max-width:100%;width:100%;background:#fff;border-top:1px solid var(--line)}
+#viewSalesExport .table-scroll::-webkit-scrollbar{width:12px;height:12px}
+#viewSalesExport .table-scroll::-webkit-scrollbar-track{background:#f1f5f9}
+#viewSalesExport .table-scroll::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:6px;border:2px solid #f1f5f9}
+#viewSalesExport .table-scroll::-webkit-scrollbar-thumb:hover{background:#64748b}
+
+/* Panel-title tools stay visible + wrap gracefully instead of getting pushed off-screen */
+#viewSalesExport .panel-title{flex-wrap:wrap;gap:12px;row-gap:10px}
+#viewSalesExport .cost-log-tools{flex-wrap:wrap;justify-content:flex-end}
+#salesExportBtn{white-space:nowrap;font-weight:700;padding:8px 16px;box-shadow:0 4px 12px rgba(11,42,85,0.22)}
+.sales-inline-select{padding:6px 10px!important;font-size:12px!important;min-height:32px!important;border-radius:8px!important;font-weight:600;color:var(--text);background:#fff;cursor:pointer;border:1px solid var(--line)}
+
+/* Filters toolbar — all items in one nice row */
+#viewSalesExport .toolbar.sales-toolbar{gap:8px;flex-wrap:wrap;align-items:center;padding:12px 18px}
+#viewSalesExport .sales-toolbar .search{flex:1 1 240px;min-width:200px;max-width:420px}
+#viewSalesExport .sales-toolbar .search input{width:100%}
+#viewSalesExport .sales-toolbar select,#viewSalesExport .sales-toolbar input[type="date"]{flex:0 0 auto;width:auto;min-width:150px;padding:8px 10px;font-size:13px;border-radius:10px;background:#fff;color:var(--text);border:1px solid var(--line)}
+#viewSalesExport .sales-toolbar .btn{flex:0 0 auto;padding:8px 14px;font-size:12px;min-height:36px}
 
 /* Sales Data Export tab (legacy — kept for the shared sales-report-table styles below) */
 .sales-hero-panel{padding:0!important;background:linear-gradient(135deg,var(--primary) 0%,#13315c 55%,#1e3a8a 100%)!important;color:#fff;border:none!important;overflow:hidden;position:relative;box-shadow:0 20px 50px rgba(11,42,85,0.25)!important;margin-bottom:16px}
