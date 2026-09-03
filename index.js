@@ -11,6 +11,8 @@ const SOURCES_SHEET = process.env.GOOGLE_SOURCES_SHEET || 'Source';
 const RAW_MATERIALS_SHEET = process.env.GOOGLE_RAW_MATERIALS_SHEET || 'RawMaterials';
 const ROUTER_SHEET = process.env.GOOGLE_ROUTER_SHEET || 'Router';
 const OTHERS_COST_SHEET = process.env.GOOGLE_OTHERS_COST_SHEET || 'OthersCost&Expenses';
+const SUPPLIES_SHEET = process.env.GOOGLE_SUPPLIES_SHEET || 'Supplies & Misc. Expenses';
+const SUPPLIES_HEADERS = ['ID', 'Date', 'Supplier Name', 'Description', 'Mode of Payment', 'Amount', 'Created At'];
 const INCOME_DETAILS_SHEET = process.env.GOOGLE_INCOME_DETAILS_SHEET || 'IncomeDetails';
 const LAZADA_DEDUCTIONS_SHEET = process.env.GOOGLE_LAZADA_DEDUCTIONS_SHEET || 'Lazada_Deductions';
 const CONFIRMED_SHEET = process.env.GOOGLE_CONFIRMED_SHEET || 'Confirmed';
@@ -586,6 +588,105 @@ app.get('/api/routers', async (_req, res) => {
       .filter(r => r.description);
     res.json({ items });
   } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
+// -------- Supplies & Misc. Expenses --------
+async function ensureSuppliesSheet() {
+  const meta = await google('?fields=sheets.properties');
+  let target = (meta.sheets || []).find(s => s.properties.title === SUPPLIES_SHEET);
+  if (!target) {
+    const created = await google(':batchUpdate', {
+      method: 'POST', body: JSON.stringify({ requests: [{ addSheet: { properties: { title: SUPPLIES_SHEET, gridProperties: { frozenRowCount: 1 } } } }] })
+    });
+    target = { properties: created.replies[0].addSheet.properties };
+  }
+  const values = await google(`/values/${encodeURIComponent(`'${SUPPLIES_SHEET}'!A1:G1`)}`);
+  if (!values.values?.length || values.values[0].length < SUPPLIES_HEADERS.length) {
+    await google(`/values/${encodeURIComponent(`'${SUPPLIES_SHEET}'!A1:G1`)}?valueInputOption=RAW`, {
+      method: 'PUT', body: JSON.stringify({ values: [SUPPLIES_HEADERS] })
+    });
+  }
+  return target.properties.sheetId;
+}
+
+app.get('/api/supplies', async (_req, res) => {
+  try {
+    await ensureSuppliesSheet();
+    const rows = await getValues(SUPPLIES_SHEET);
+    const entries = rows.slice(1)
+      .filter(r => r && (r[0] || r[2] || r[3]))
+      .map(r => ({
+        id: String(r[0] || ''),
+        date: String(r[1] || ''),
+        supplierName: String(r[2] || ''),
+        description: String(r[3] || ''),
+        modeOfPayment: String(r[4] || ''),
+        amount: Number(String(r[5] || '0').replace(/[^0-9.-]/g, '')) || 0,
+        createdAt: String(r[6] || '')
+      }));
+    res.json({ entries });
+  } catch (error) { res.status(502).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+app.post('/api/supplies', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : new Date().toISOString().slice(0, 10);
+    const supplierName = String(body.supplierName || '').trim();
+    const description = String(body.description || '').trim();
+    const modeOfPayment = String(body.modeOfPayment || 'Bank').trim();
+    const amount = Number(String(body.amount || '0').replace(/[^0-9.-]/g, '')) || 0;
+    if (!supplierName) throw Object.assign(new Error('Supplier Name is required.'), { status: 400 });
+    if (!description) throw Object.assign(new Error('Description is required.'), { status: 400 });
+    if (amount <= 0) throw Object.assign(new Error('Amount must be greater than 0.'), { status: 400 });
+    await ensureSuppliesSheet();
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await google(`/values/${encodeURIComponent(`'${SUPPLIES_SHEET}'!A:G`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`, {
+      method: 'POST', body: JSON.stringify({ values: [[id, date, supplierName, description, modeOfPayment, amount, now]] })
+    });
+    res.status(201).json({ ok: true, id });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+app.patch('/api/supplies/:id', async (req, res) => {
+  try {
+    await ensureSuppliesSheet();
+    const rows = await getValues(SUPPLIES_SHEET);
+    const index = rows.findIndex((r, i) => i > 0 && String(r?.[0]) === req.params.id);
+    if (index < 0) return res.status(404).json({ error: 'Supplies entry not found.' });
+    const existing = rows[index];
+    const body = req.body || {};
+    const rawDate = body.date != null ? String(body.date) : String(existing[1] || '');
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : String(existing[1] || '');
+    const supplierName = body.supplierName != null ? String(body.supplierName).trim() : String(existing[2] || '');
+    const description = body.description != null ? String(body.description).trim() : String(existing[3] || '');
+    const modeOfPayment = body.modeOfPayment != null ? String(body.modeOfPayment).trim() : String(existing[4] || 'Bank');
+    const num = v => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+    const amount = body.amount != null ? num(body.amount) : num(existing[5]);
+    if (!supplierName) throw Object.assign(new Error('Supplier Name is required.'), { status: 400 });
+    if (!description) throw Object.assign(new Error('Description is required.'), { status: 400 });
+    if (amount <= 0) throw Object.assign(new Error('Amount must be greater than 0.'), { status: 400 });
+    const rowNumber = index + 1;
+    await google(`/values/${encodeURIComponent(`'${SUPPLIES_SHEET}'!B${rowNumber}:F${rowNumber}`)}?valueInputOption=USER_ENTERED`, {
+      method: 'PUT', body: JSON.stringify({ values: [[date, supplierName, description, modeOfPayment, amount]] })
+    });
+    res.json({ ok: true, id: req.params.id, date, supplierName, description, modeOfPayment, amount });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
+});
+
+app.delete('/api/supplies/:id', async (req, res) => {
+  try {
+    const sheetId = await ensureSuppliesSheet();
+    const rows = await getValues(SUPPLIES_SHEET);
+    const index = rows.findIndex((r, i) => i > 0 && String(r?.[0]) === req.params.id);
+    if (index < 0) return res.status(404).json({ error: 'Supplies entry not found.' });
+    await google(':batchUpdate', {
+      method: 'POST',
+      body: JSON.stringify({ requests: [{ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: index, endIndex: index + 1 } } }] })
+    });
+    res.status(204).end();
+  } catch (error) { res.status(error.status || 500).json({ error: error.message, setup: Boolean(error.setup) }); }
 });
 
 app.get('/api/others-cost', async (_req, res) => {
@@ -2046,7 +2147,7 @@ main.shell > *{max-width:100%}
 </section>
 </div>
 <div class="view" id="viewCosts" hidden>
-<nav class="sub-tabs" role="tablist" aria-label="Cost &amp; Expenses sub-tabs"><button class="sub-tab active" data-subtab="add" role="tab" aria-selected="true">Add Cost Entry</button><button class="sub-tab" data-subtab="others" role="tab" aria-selected="false">Add Cost Entry Others</button><button class="sub-tab" data-subtab="report" role="tab" aria-selected="false">Cost &amp; Expenses Report</button></nav>
+<nav class="sub-tabs" role="tablist" aria-label="Cost &amp; Expenses sub-tabs"><button class="sub-tab active" data-subtab="add" role="tab" aria-selected="true">Add Cost Entry</button><button class="sub-tab" data-subtab="others" role="tab" aria-selected="false">Add Cost Entry Others</button><button class="sub-tab" data-subtab="supplies" role="tab" aria-selected="false">Supplies &amp; Misc. Expenses</button><button class="sub-tab" data-subtab="report" role="tab" aria-selected="false">Cost &amp; Expenses Report</button></nav>
 <div class="sub-view" id="subCostsAdd">
 <section class="workspace cost-workspace">
 <aside class="panel form-panel cost-form-panel">
@@ -2107,6 +2208,43 @@ main.shell > *{max-width:100%}
       </div>
     </div>
   </form>
+</section>
+</div>
+</section>
+</div>
+<div class="sub-view" id="subCostsSupplies" hidden>
+<section class="workspace cost-workspace">
+<div class="content">
+<section class="panel form-panel cost-form-panel">
+  <div class="panel-title"><h3>Add Supplies &amp; Misc. Expense</h3><span>Standalone expense entry</span></div>
+  <form class="form-body" id="suppliesForm" autocomplete="off">
+    <div class="cost-top-grid" style="grid-template-columns:160px 1fr 1fr">
+      <div class="field"><label for="suppliesDate">DATE <span class="req">*</span></label><input id="suppliesDate" name="date" type="date" required></div>
+      <div class="field"><label for="suppliesSupplier">SUPPLIER NAME <span class="req">*</span></label><input id="suppliesSupplier" name="supplierName" type="text" placeholder="e.g. ACE Hardware" required></div>
+      <div class="field"><label for="suppliesMode">MODE OF PAYMENT</label><input id="suppliesMode" name="modeOfPayment" type="text" list="suppliesModeList" value="Bank" placeholder="Bank / Cash / GCash…"><datalist id="suppliesModeList"><option value="Bank"></option><option value="Cash"></option><option value="GCash"></option><option value="Credit Card"></option><option value="Check"></option><option value="PayMaya"></option></datalist></div>
+    </div>
+    <div class="field" style="margin-top:12px"><label for="suppliesDesc">DESCRIPTION <span class="req">*</span></label><input id="suppliesDesc" name="description" type="text" placeholder="e.g. Office supplies, printer ink, misc materials…" required></div>
+    <div class="field" style="margin-top:12px;max-width:220px"><label for="suppliesAmount">AMOUNT (PHP) <span class="req">*</span></label><input id="suppliesAmount" name="amount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" required></div>
+    <div class="form-actions cost-form-actions">
+      <button type="button" class="btn" id="suppliesResetBtn">Clear</button>
+      <button type="submit" class="btn primary" id="suppliesSaveBtn">＋ Save entry</button>
+    </div>
+  </form>
+</section>
+<section class="panel table-panel">
+  <div class="panel-title"><h3>Recorded Supplies &amp; Misc. Expenses</h3><span id="suppliesCount">0 entries</span></div>
+  <div class="toolbar">
+    <div class="search"><input id="suppliesSearch" type="search" placeholder="Search supplier, description, mode of payment…" aria-label="Search supplies"></div>
+    <select id="suppliesSupplierFilter" aria-label="Filter by supplier"><option value="">All suppliers</option></select>
+    <select id="suppliesDateFilter" aria-label="Filter by date"><option value="">All dates</option><option value="month">This month</option><option value="30">Last 30 days</option><option value="year">This year</option></select>
+  </div>
+  <div class="table-scroll">
+    <table class="cost-log-table">
+      <thead><tr><th>Date</th><th>Supplier Name</th><th>Description</th><th>Mode of Payment</th><th>Amount</th><th>Actions</th></tr></thead>
+      <tbody id="suppliesRows"></tbody>
+    </table>
+    <div class="empty" id="suppliesEmpty"><div class="empty-icon">▤</div><strong>No supplies recorded yet</strong><div>Log office supplies, misc materials, and one-off expenses here.</div></div>
+  </div>
 </section>
 </div>
 </section>
@@ -2190,6 +2328,27 @@ main.shell > *{max-width:100%}
       <div class="income-actions">
         <button type="button" class="btn" id="deleteOrderCancelBtn">Cancel</button>
         <button type="submit" class="btn danger" id="deleteOrderSubmitBtn" disabled>× Delete all lines</button>
+      </div>
+    </form>
+  </div>
+</div>
+<div class="income-viewer" id="suppliesEditModal" role="dialog" aria-modal="true" aria-label="Edit supplies entry">
+  <div class="income-sheet">
+    <div class="income-head">
+      <div><div class="eyebrow" style="color:var(--primary)!important">Supplies entry</div><h3>Edit Supplies &amp; Misc. Expense</h3><p>Update any field below.</p></div>
+      <button type="button" class="icon-btn" id="suppliesEditCloseBtn" aria-label="Close">×</button>
+    </div>
+    <form id="suppliesEditForm" class="income-body" autocomplete="off">
+      <div class="form-grid">
+        <div class="field"><label for="suppliesEditDate">DATE</label><input id="suppliesEditDate" name="date" type="date"></div>
+        <div class="field"><label for="suppliesEditAmount">AMOUNT (PHP)</label><input id="suppliesEditAmount" name="amount" type="number" min="0" step="0.01" inputmode="decimal"></div>
+      </div>
+      <div class="field"><label for="suppliesEditSupplier">SUPPLIER NAME</label><input id="suppliesEditSupplier" name="supplierName" type="text"></div>
+      <div class="field"><label for="suppliesEditDesc">DESCRIPTION</label><input id="suppliesEditDesc" name="description" type="text"></div>
+      <div class="field"><label for="suppliesEditMode">MODE OF PAYMENT</label><input id="suppliesEditMode" name="modeOfPayment" type="text" list="suppliesModeList"></div>
+      <div class="income-actions">
+        <button type="button" class="btn" id="suppliesEditCancelBtn">Cancel</button>
+        <button type="submit" class="btn primary" id="suppliesEditSaveBtn">✓ Save changes</button>
       </div>
     </form>
   </div>
@@ -2307,7 +2466,7 @@ main.shell > *{max-width:100%}
   var rawMaterials=[],routerMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={},costLineSuppliers={},selectedRouters=[];
   function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var targetId='view'+name.charAt(0).toUpperCase()+name.slice(1);document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!==targetId});if(name==='costs'){switchCostSubtab(currentCostSubtab||'add')}if(name==='editRaw'){renderRawMatEditRows()}if(name==='paid'){loadLazadaAvailableOrders().then(renderPaid)}if(name==='pending'){loadLazadaAvailableOrders().then(renderPending)}if(name==='incomeDetails'){renderIncomeDetails()}if(name==='salesExport'){loadMarketplaceSalesDates().then(renderSalesReport)}}
   var currentCostSubtab='add';
-  function switchCostSubtab(name){currentCostSubtab=name;document.querySelectorAll('.sub-tab').forEach(function(b){var on=b.dataset.subtab===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var map={add:'subCostsAdd',others:'subCostsOthers',report:'subCostsReport'};Object.keys(map).forEach(function(k){var el=$(map[k]);if(el)el.hidden=(k!==name)});if(name==='add'){loadCosts();refreshCostOrderOptions()}if(name==='others'){loadCosts();refreshCostOthersOrderOptions()}if(name==='report'){loadCosts().then(renderCostReport)}}
+  function switchCostSubtab(name){currentCostSubtab=name;document.querySelectorAll('.sub-tab').forEach(function(b){var on=b.dataset.subtab===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var map={add:'subCostsAdd',others:'subCostsOthers',supplies:'subCostsSupplies',report:'subCostsReport'};Object.keys(map).forEach(function(k){var el=$(map[k]);if(el)el.hidden=(k!==name)});if(name==='add'){loadCosts();refreshCostOrderOptions()}if(name==='others'){loadCosts();refreshCostOthersOrderOptions()}if(name==='supplies'){loadSupplies()}if(name==='report'){Promise.all([loadCosts(),loadSupplies()]).then(renderCostReport)}}
   document.querySelectorAll('.sub-tab').forEach(function(b){b.onclick=function(){switchCostSubtab(b.dataset.subtab)}});
   document.querySelectorAll('.view-tab').forEach(function(b){b.onclick=function(){switchView(b.dataset.view)}});
   async function loadRawMaterials(){try{var d=await api('/api/raw-materials');rawMaterials=d.items||[]}catch(e){rawMaterials=[]}}
@@ -2420,10 +2579,24 @@ main.shell > *{max-width:100%}
       for(var h=0;h<headers.length;h++){var hc=ws[XLSX.utils.encode_cell({r:0,c:h})];if(hc)hc.s={font:{bold:true}}}
       var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Sales Data');var monthFilter=$('salesMonthFilter').value;var filename=monthFilter?('Sales_Data_'+monthFilter.replace(/\s+/g,'_')+'.xlsx'):('Sales_Data_'+today()+'.xlsx');XLSX.writeFile(wb,filename);toast('Exported '+data.length+' row'+(data.length===1?'':'s')+' to '+filename);}catch(err){toast('Export failed: '+(err.message||'unknown error'),true)}finally{btn.disabled=false;btn.textContent=oldText}})}
   // ============ END SALES DATA EXPORT ============
+  // ============ Supplies & Misc. Expenses ============
+  var suppliesEntries=[];
+  async function loadSupplies(){try{var d=await api('/api/supplies');suppliesEntries=d.entries||[]}catch(e){suppliesEntries=[]}renderSuppliesTable()}
+  function refreshSuppliesSupplierFilter(){var sel=$('suppliesSupplierFilter');if(!sel)return;var current=sel.value;var sup={};(suppliesEntries||[]).forEach(function(e){var s=String(e.supplierName||'').trim();if(s)sup[s]=true});var sorted=Object.keys(sup).sort();sel.innerHTML='<option value="">All suppliers</option>'+sorted.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>'}).join('');if(current&&sup[current])sel.value=current}
+  function filteredSuppliesEntries(){var q=(($('suppliesSearch')||{}).value||'').toLowerCase().trim();var sup=(($('suppliesSupplierFilter')||{}).value||'').toLowerCase().trim();var df=(($('suppliesDateFilter')||{}).value||'');return (suppliesEntries||[]).filter(function(e){if(q){var blob=[e.date,e.supplierName,e.description,e.modeOfPayment].join(' ').toLowerCase();if(blob.indexOf(q)<0)return false}if(sup&&String(e.supplierName).toLowerCase().trim()!==sup)return false;if(df&&!matchesDate({date:e.date},df))return false;return true})}
+  function renderSuppliesTable(){var tbody=$('suppliesRows');if(!tbody)return;refreshSuppliesSupplierFilter();var data=filteredSuppliesEntries().slice().sort(function(a,b){if(a.date===b.date)return 0;return a.date>b.date?-1:1});tbody.innerHTML=data.map(function(e){return '<tr data-supplies-id="'+esc(e.id)+'"><td data-label="Date">'+esc(e.date)+'</td><td data-label="Supplier Name">'+esc(e.supplierName||'—')+'</td><td data-label="Description">'+esc(e.description||'—')+'</td><td data-label="Mode of Payment">'+esc(e.modeOfPayment||'—')+'</td><td data-label="Amount" class="money">'+money(e.amount)+'</td><td data-label="Actions"><div class="row-actions"><button type="button" class="icon-btn supplies-edit" aria-label="Edit entry" title="Edit">✎</button><button type="button" class="icon-btn delete supplies-del" aria-label="Delete entry" title="Delete">×</button></div></td></tr>'}).join('');$('suppliesEmpty').className='empty'+(data.length?'':' show');$('suppliesCount').textContent=data.length+' entr'+(data.length===1?'y':'ies');tbody.querySelectorAll('.supplies-del').forEach(function(b){b.onclick=function(){deleteSuppliesEntry(b.closest('tr').dataset.suppliesId)}});tbody.querySelectorAll('.supplies-edit').forEach(function(b){b.onclick=function(){openSuppliesEdit(b.closest('tr').dataset.suppliesId)}})}
+  var suppliesEditingId='';
+  function openSuppliesEdit(id){var e=(suppliesEntries||[]).find(function(v){return v.id===id});if(!e)return;suppliesEditingId=id;$('suppliesEditDate').value=e.date||'';$('suppliesEditSupplier').value=e.supplierName||'';$('suppliesEditDesc').value=e.description||'';$('suppliesEditMode').value=e.modeOfPayment||'Bank';$('suppliesEditAmount').value=Number(e.amount)||0;$('suppliesEditModal').className='income-viewer show'}
+  function closeSuppliesEdit(){$('suppliesEditModal').className='income-viewer';suppliesEditingId=''}
+  async function saveSuppliesEdit(e){e.preventDefault();if(!suppliesEditingId)return;var body={date:$('suppliesEditDate').value,supplierName:$('suppliesEditSupplier').value,description:$('suppliesEditDesc').value,modeOfPayment:$('suppliesEditMode').value,amount:$('suppliesEditAmount').value};var btn=$('suppliesEditSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/supplies/'+encodeURIComponent(suppliesEditingId),{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(body)});toast('Supplies entry updated.');closeSuppliesEdit();await loadSupplies()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
+  function clearSuppliesForm(){var f=$('suppliesForm');if(f)f.reset();var d=$('suppliesDate');if(d)d.value=today();var m=$('suppliesMode');if(m)m.value='Bank'}
+  async function saveSuppliesEntry(e){e.preventDefault();var body={date:$('suppliesDate').value,supplierName:$('suppliesSupplier').value,description:$('suppliesDesc').value,modeOfPayment:$('suppliesMode').value,amount:$('suppliesAmount').value};var btn=$('suppliesSaveBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/supplies',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});toast('Supplies entry saved.');clearSuppliesForm();await loadSupplies()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true)}finally{btn.disabled=false;btn.textContent=oldText}}
+  async function deleteSuppliesEntry(id){var e=suppliesEntries.find(function(v){return v.id===id});if(!e)return;if(!confirm('Delete this supplies entry?\n\n'+(e.supplierName||'—')+' · '+(e.description||'')+' · '+money(e.amount)))return;try{await api('/api/supplies/'+encodeURIComponent(id),{method:'DELETE'});toast('Supplies entry deleted.');await loadSupplies()}catch(err){toast(err.message,true)}}
+  // ============ end supplies ============
   var COST_REPORT_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  function buildCostReportRows(){var othersMap={};(othersCostItems||[]).forEach(function(o){var k=String(o.description||'').toLowerCase().trim();if(k)othersMap[k]=true});return (costEntries||[]).map(function(e){var dateStr=String(e.date||'');var year='',month='';var m=dateStr.match(/^(\d{4})-(\d{2})/);if(m){year=m[1];var mn=parseInt(m[2],10);month=COST_REPORT_MONTHS[mn-1]||''}var descKey=String(e.description||'').toLowerCase().trim();var isOthers=othersMap[descKey];return {date:dateStr,year:year,supplierName:e.supplier||'',description:e.description||'',address:'',combine:'',reference:'',tin:'',taxType:'Non-Vat',modeOfPayment:'Bank',amount:Number(e.total)||0,account:isOthers?'8017 - Supplies, office expenses':'5500-Cost of Sales',monthReported:month}})}
+  function buildCostReportRows(){var othersMap={};(othersCostItems||[]).forEach(function(o){var k=String(o.description||'').toLowerCase().trim();if(k)othersMap[k]=true});var costRows=(costEntries||[]).map(function(e){var dateStr=String(e.date||'');var year='',month='';var m=dateStr.match(/^(\d{4})-(\d{2})/);if(m){year=m[1];var mn=parseInt(m[2],10);month=COST_REPORT_MONTHS[mn-1]||''}var descKey=String(e.description||'').toLowerCase().trim();var isOthers=othersMap[descKey];return {date:dateStr,year:year,supplierName:e.supplier||'',description:e.description||'',address:'',combine:'',reference:'',tin:'',taxType:'Non-Vat',modeOfPayment:'Bank',amount:Number(e.total)||0,account:isOthers?'8017 - Supplies, office expenses':'5500-Cost of Sales',monthReported:month}});var suppliesRows=(suppliesEntries||[]).map(function(e){var dateStr=String(e.date||'');var year='',month='';var m=dateStr.match(/^(\d{4})-(\d{2})/);if(m){year=m[1];var mn=parseInt(m[2],10);month=COST_REPORT_MONTHS[mn-1]||''}return {date:dateStr,year:year,supplierName:e.supplierName||'',description:e.description||'',address:'',combine:'',reference:'',tin:'',taxType:'Non-Vat',modeOfPayment:e.modeOfPayment||'Bank',amount:Number(e.amount)||0,account:'8017 - Supplies, office expenses',monthReported:month}});return costRows.concat(suppliesRows)}
   function filteredCostReport(){var all=buildCostReportRows();var q=($('costReportSearch').value||'').toLowerCase().trim();var sup=($('costReportSupplierFilter').value||'').toLowerCase().trim();var df=$('costReportDateFilter').value||'';return all.filter(function(r){if(q){var blob=[r.date,r.year,r.supplierName,r.description,r.account,r.monthReported,r.taxType,r.modeOfPayment].join(' ').toLowerCase();if(blob.indexOf(q)<0)return false}if(sup&&String(r.supplierName).toLowerCase().trim()!==sup)return false;if(df&&!matchesDate({date:r.date},df))return false;return true})}
-  function refreshCostReportSupplierFilter(){var sel=$('costReportSupplierFilter');if(!sel)return;var current=sel.value;var suppliers={};(costEntries||[]).forEach(function(e){var s=String(e.supplier||'').trim();if(s)suppliers[s]=true});var sorted=Object.keys(suppliers).sort();var opts='<option value="">All suppliers</option>'+sorted.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>'}).join('');sel.innerHTML=opts;if(current&&suppliers[current])sel.value=current}
+  function refreshCostReportSupplierFilter(){var sel=$('costReportSupplierFilter');if(!sel)return;var current=sel.value;var suppliers={};(costEntries||[]).forEach(function(e){var s=String(e.supplier||'').trim();if(s)suppliers[s]=true});(suppliesEntries||[]).forEach(function(e){var s=String(e.supplierName||'').trim();if(s)suppliers[s]=true});var sorted=Object.keys(suppliers).sort();var opts='<option value="">All suppliers</option>'+sorted.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>'}).join('');sel.innerHTML=opts;if(current&&suppliers[current])sel.value=current}
   function renderCostReport(){refreshCostReportSupplierFilter();var data=filteredCostReport();var tbody=$('costReportRows');tbody.innerHTML=data.map(function(r){return '<tr>'+
       '<td data-label="Date">'+esc(r.date)+'</td>'+
       '<td data-label="Year">'+esc(r.year)+'</td>'+
@@ -2450,6 +2623,15 @@ main.shell > *{max-width:100%}
   $('costRouterPicker').addEventListener('change',function(){var v=this.value;if(v===''||v===null)return;var idx=Number(v);var m=routerMaterials[idx];if(!m)return;selectedRouters.push({idx:idx,qty:1,amount:Number(m.amount)||0,supplier:''});renderSelectedRouters()});
   $('costOthersOrderNumber').addEventListener('change',function(){populateCostOthersForm(this.value)});$('costOthersForm').onsubmit=saveCostOthersEntry;$('costOthersResetBtn').onclick=clearCostOthersForm;$('costOthersDate').value=today();
   ['costReportSearch','costReportSupplierFilter','costReportDateFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='costReportSearch'?'input':'change',renderCostReport)});var crExport=$('costReportExportBtn');if(crExport)crExport.onclick=exportCostReportCsv;
+  // Supplies wiring
+  var suppliesForm=$('suppliesForm');if(suppliesForm)suppliesForm.onsubmit=saveSuppliesEntry;
+  var suppliesReset=$('suppliesResetBtn');if(suppliesReset)suppliesReset.onclick=clearSuppliesForm;
+  var suppliesDate=$('suppliesDate');if(suppliesDate)suppliesDate.value=today();
+  ['suppliesSearch','suppliesSupplierFilter','suppliesDateFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='suppliesSearch'?'input':'change',renderSuppliesTable)});
+  var suppliesEditForm=$('suppliesEditForm');if(suppliesEditForm)suppliesEditForm.onsubmit=saveSuppliesEdit;
+  var suppliesEditCancel=$('suppliesEditCancelBtn');if(suppliesEditCancel)suppliesEditCancel.onclick=closeSuppliesEdit;
+  var suppliesEditClose=$('suppliesEditCloseBtn');if(suppliesEditClose)suppliesEditClose.onclick=closeSuppliesEdit;
+  var suppliesEditModal=$('suppliesEditModal');if(suppliesEditModal)suppliesEditModal.onclick=function(e){if(e.target===suppliesEditModal)closeSuppliesEdit()};
   // Sales Report wiring
   var salesClear=$('salesClearFilterBtn');if(salesClear)salesClear.onclick=clearSalesFilters;
   var salesExport=$('salesExportBtn');if(salesExport)salesExport.onclick=exportSalesReportXlsx;
@@ -2459,7 +2641,7 @@ main.shell > *{max-width:100%}
   var lazadaBtn=$('lazadaRecomputeBtn');if(lazadaBtn){lazadaBtn.onclick=async function(){var useFallback=confirm('Recompute deductions for every order using the latest marketplace mappings?\n\nRoutes each record by its Source column: Lazada → IncomeDetails, Shopee → IncomeShopee.\n\nClick OK to use the built-in code fallback ONLY (bypasses the mapping sheets — safest if a sheet has wrong mappings).\n\nClick Cancel to use the mapping sheets (with fallback filling gaps).');lazadaBtn.disabled=true;var oldText=lazadaBtn.textContent;lazadaBtn.textContent='Recomputing…';try{var res=await api('/api/records/marketplace-recompute',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({forceFallback:useFallback})});try{console.log('marketplace-recompute:',res)}catch(_){}var msg='✓ Recomputed '+res.updated+' of '+res.scanned+' records ('+(res.matchedLazada||0)+' Lazada + '+(res.matchedShopee||0)+' Shopee)'+(useFallback?' — using code fallback only':'');if(res.unmappedLabels&&res.unmappedLabels.length)msg+='. ⚠ Unmapped: '+res.unmappedLabels.join(', ');toast(msg);await loadLazadaAvailableOrders();await loadRecords()}catch(err){toast('Recompute failed: '+(err.message||'unknown error'),true)}finally{lazadaBtn.disabled=false;lazadaBtn.textContent=oldText}}}
   $('description').addEventListener('change',toggleLicenseField);
   $('unitPrice').addEventListener('input',recomputePriceFromUnit);$('qty').addEventListener('input',recomputePriceFromUnit);
-  setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter','sourceFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});['paidSearch','paidProductFilter','paidDateFilter','paidSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='paidSearch'?'input':'change',renderPaid)});['pendingSearch','pendingProductFilter','pendingDateFilter','pendingSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='pendingSearch'?'input':'change',renderPending)});['idSearch','idProductFilter','idDateFilter','idSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='idSearch'?'input':'change',renderIncomeDetails)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials(),loadRouters(),loadCosts(),loadOthersCost(),loadLazadaAvailableOrders()]).then(loadRecords).then(function(){refreshCostOrderOptions();refreshCostOthersOrderOptions();toggleLicenseField()}).catch(function(e){toast(e.message,true);loadRecords()});
+  setupPictures();$('recordForm').onsubmit=saveRecord;$('resetBtn').onclick=clearForm;$('cancelEdit').onclick=clearForm;$('deleteBtn').onclick=function(){if(editingId)deleteRecord(editingId)};['search','productFilter','dateFilter','sourceFilter'].forEach(function(id){$(id).addEventListener(id==='search'?'input':'change',render)});['paidSearch','paidProductFilter','paidDateFilter','paidSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='paidSearch'?'input':'change',renderPaid)});['pendingSearch','pendingProductFilter','pendingDateFilter','pendingSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='pendingSearch'?'input':'change',renderPending)});['idSearch','idProductFilter','idDateFilter','idSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='idSearch'?'input':'change',renderIncomeDetails)});var resizeTimer;window.addEventListener('resize',function(){clearTimeout(resizeTimer);resizeTimer=setTimeout(drawCharts,120)});$('date').value=today();Promise.all([loadConfig(),loadProducts(),loadSources(),loadRawMaterials(),loadRouters(),loadCosts(),loadOthersCost(),loadLazadaAvailableOrders(),loadSupplies()]).then(loadRecords).then(function(){refreshCostOrderOptions();refreshCostOthersOrderOptions();toggleLicenseField()}).catch(function(e){toast(e.message,true);loadRecords()});
 })();
 </script></body></html>`;
 
