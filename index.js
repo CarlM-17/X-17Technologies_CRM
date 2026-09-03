@@ -1545,7 +1545,14 @@ main.shell > *{max-width:100%}
 .cost-items-grid .cost-item input.supplier-input:focus,.cost-items-grid .cost-item select.supplier-select:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
 .cost-items-grid .cost-item select.supplier-select{cursor:pointer;appearance:auto}
 
-/* Sales Data Export tab */
+/* Sales Report tab — compact single-panel layout */
+.sales-inline-select{padding:6px 10px!important;font-size:12px!important;min-height:32px!important;border-radius:8px!important;font-weight:600;color:var(--muted);background:#fff;cursor:pointer}
+.sales-toolbar{gap:8px;flex-wrap:wrap}
+.sales-toolbar .search{flex:1;min-width:220px}
+.sales-toolbar select,.sales-toolbar input[type="date"]{min-width:130px;padding:9px 12px;font-size:13px;border-radius:10px;background:#fff}
+.sales-toolbar .btn{padding:9px 14px;font-size:12px;min-height:38px}
+
+/* Sales Data Export tab (legacy — kept for the shared sales-report-table styles below) */
 .sales-hero-panel{padding:0!important;background:linear-gradient(135deg,var(--primary) 0%,#13315c 55%,#1e3a8a 100%)!important;color:#fff;border:none!important;overflow:hidden;position:relative;box-shadow:0 20px 50px rgba(11,42,85,0.25)!important;margin-bottom:16px}
 .sales-hero-panel::before{content:"";position:absolute;right:-80px;top:-100px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle at 40% 40%,rgba(96,165,250,0.35),transparent 60%);pointer-events:none}
 .sales-hero-panel::after{content:"";position:absolute;left:-60px;bottom:-90px;width:220px;height:220px;border:1px solid rgba(255,255,255,0.07);border-radius:50%;box-shadow:0 0 0 30px rgba(255,255,255,0.03);pointer-events:none}
@@ -1996,51 +2003,15 @@ main.shell > *{max-width:100%}
 <div class="view" id="viewSalesExport" hidden>
 <section class="workspace cost-workspace">
 <div class="content">
-  <section class="panel sales-hero-panel">
-    <div class="sales-hero-inner">
-      <div class="sales-hero-copy">
-        <div class="sales-hero-eyebrow">DATA EXPORT</div>
-        <h2 class="sales-hero-title">Sales Report</h2>
-        <p class="sales-hero-sub">Filter your sales records and download the current view as an Excel workbook.</p>
-      </div>
-      <button type="button" class="btn primary sales-hero-export" id="salesExportBtnHero">↓ Export to Excel</button>
-    </div>
-  </section>
-  <section class="panel sales-filter-panel">
-    <div class="panel-title"><h3>Filters</h3></div>
-    <div class="form-body">
-      <div class="sales-filter-grid">
-        <div class="field"><label for="salesDateFrom">DATE FROM</label><input id="salesDateFrom" type="date"></div>
-        <div class="field"><label for="salesDateTo">DATE TO</label><input id="salesDateTo" type="date"></div>
-        <div class="field"><label for="salesMonthFilter">MONTH</label><select id="salesMonthFilter"><option value="">All Months</option></select></div>
-        <div class="field"><label for="salesSourceFilter">SOURCE</label><select id="salesSourceFilter"><option value="">All sources</option></select></div>
-        <div class="field"><label for="salesOrderSearch">ORDER NUMBER SEARCH</label><input id="salesOrderSearch" type="search" placeholder="Order #…"></div>
-        <div class="field"><label for="salesProductSearch">PRODUCT SEARCH</label><input id="salesProductSearch" type="search" placeholder="Product name…"></div>
-      </div>
-      <div class="form-actions sales-filter-actions">
-        <button type="button" class="btn" id="salesClearFilterBtn">Clear Filter</button>
-        <button type="button" class="btn primary" id="salesApplyFilterBtn">Apply Filter</button>
-      </div>
-    </div>
-  </section>
-  <section class="metrics sales-metrics">
-    <article class="metric"><div class="metric-top"><span>Total Orders</span><i class="metric-icon">▤</i></div><div class="metric-value" id="slTotalOrders">0</div><div class="metric-foot">Unique order #</div></article>
-    <article class="metric"><div class="metric-top"><span>Total Quantity</span><i class="metric-icon">Σ</i></div><div class="metric-value" id="slTotalQty">0</div><div class="metric-foot">Items sold</div></article>
-    <article class="metric"><div class="metric-top"><span>Gross Sales</span><i class="metric-icon">₱</i></div><div class="metric-value" id="slGross">₱0</div><div class="metric-foot">Qty × Unit</div></article>
-    <article class="metric"><div class="metric-top"><span>Commission</span><i class="metric-icon">%</i></div><div class="metric-value" id="slCommission">₱0</div><div class="metric-foot">Marketplace fees</div></article>
-    <article class="metric"><div class="metric-top"><span>Advertising</span><i class="metric-icon">◈</i></div><div class="metric-value" id="slAdvertising">₱0</div><div class="metric-foot">Ad spend</div></article>
-    <article class="metric"><div class="metric-top"><span>Freight Out</span><i class="metric-icon">→</i></div><div class="metric-value" id="slFreight">₱0</div><div class="metric-foot">Shipping</div></article>
-    <article class="metric"><div class="metric-top"><span>Withholding Tax</span><i class="metric-icon">−</i></div><div class="metric-value" id="slWHT">₱0</div><div class="metric-foot">WHT</div></article>
-    <article class="metric"><div class="metric-top"><span>Net Total</span><i class="metric-icon">✓</i></div><div class="metric-value" id="slNet">₱0</div><div class="metric-foot">Net proceeds</div></article>
-  </section>
-  <section class="panel table-panel sales-table-panel">
-    <div class="panel-title"><h3>Sales Report</h3><span id="salesCount">0 records</span></div>
-    <div class="sales-table-toolbar">
-      <div class="sales-toolbar-left">
-        <label class="sales-page-size-label">Rows per page<select id="salesPageSize" aria-label="Rows per page"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option><option value="all">All</option></select></label>
-        <span class="sales-scroll-hint" aria-hidden="true">← Scroll horizontally to see all columns →</span>
-      </div>
-      <button type="button" class="btn primary" id="salesExportBtn">↓ Export to Excel</button>
+  <section class="panel table-panel">
+    <div class="panel-title"><h3>Sales Report</h3><div class="cost-log-tools"><span id="salesCount">0 records</span><select id="salesPageSize" aria-label="Rows per page" class="sales-inline-select"><option value="25">25 / page</option><option value="50" selected>50 / page</option><option value="100">100 / page</option><option value="all">All</option></select><button type="button" class="btn primary btn-sm" id="salesExportBtn">↓ Export to Excel</button></div></div>
+    <div class="toolbar sales-toolbar">
+      <div class="search"><input id="salesSearch" type="search" placeholder="Search order #, customer, product…" aria-label="Search sales"></div>
+      <select id="salesMonthFilter" aria-label="Filter by month"><option value="">All months</option></select>
+      <select id="salesSourceFilter" aria-label="Filter by source"><option value="">All sources</option></select>
+      <input id="salesDateFrom" type="date" title="Date from" aria-label="Date from">
+      <input id="salesDateTo" type="date" title="Date to" aria-label="Date to">
+      <button type="button" class="btn btn-sm" id="salesClearFilterBtn" title="Clear all filters">Clear</button>
     </div>
     <div class="table-scroll" id="salesTableScroll">
       <table class="sales-report-table">
@@ -2252,7 +2223,8 @@ main.shell > *{max-width:100%}
   var salesReportPage=1;
   var salesReportPageSize=50;
   function buildSalesReportRows(){return (records||[]).map(function(r){var qty=Number(r.qty)||1;if(qty<1)qty=1;var price=Number(r.price)||0;var unitPrice=qty>0?price/qty:price;var gross=+(qty*unitPrice).toFixed(2);var commission=Number(r.commissionExpense)||0;var advertising=Number(r.advertisingExpense)||0;var freight=Number(r.freightOutExpense)||0;var wht=Number(r.withHoldingTax)||0;var netTotal=Number(r.netTotal);if(!Number.isFinite(netTotal)||netTotal===0){netTotal=+(gross-commission-advertising-freight-wht).toFixed(2)}var monthApplicable='';var iso=String(r.date||'').match(/^(\d{4})-(\d{2})/);if(iso){monthApplicable=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1]}return {ordNo:'',monthApplicable:monthApplicable,date:String(r.date||''),ordType:'Sales',orderNumber:String(r.orderNumber||''),source:String(r.source||''),exptdDate:'',customer:String(r.customerName||''),productDescription:String(r.description||''),qty:qty,unitPrice:+unitPrice.toFixed(2),gross:gross,commissionExpense:+commission.toFixed(2),advertisingExpense:+advertising.toFixed(2),freightOutExpense:+freight.toFixed(2),others:'',withHoldingTax:+wht.toFixed(2),netTotal:+netTotal.toFixed(2),paymentMode:String(r.paymentMode||''),salesInvoice:'',daysPastDue:''}})}
-  function filteredSalesRows(){var all=buildSalesReportRows();var df=$('salesDateFrom').value||'';var dt=$('salesDateTo').value||'';var month=$('salesMonthFilter').value||'';var source=($('salesSourceFilter').value||'').toLowerCase();var orderQ=($('salesOrderSearch').value||'').toLowerCase().trim();var prodQ=($('salesProductSearch').value||'').toLowerCase().trim();return all.filter(function(r){if(df&&r.date&&r.date<df)return false;if(dt&&r.date&&r.date>dt)return false;if(month&&r.monthApplicable!==month)return false;if(source&&String(r.source).toLowerCase()!==source)return false;if(orderQ&&String(r.orderNumber).toLowerCase().indexOf(orderQ)<0)return false;if(prodQ&&String(r.productDescription).toLowerCase().indexOf(prodQ)<0)return false;return true})}
+  function _slVal(id){var el=$(id);return el?(el.value||''):''}
+  function filteredSalesRows(){var all=buildSalesReportRows();var df=_slVal('salesDateFrom');var dt=_slVal('salesDateTo');var month=_slVal('salesMonthFilter');var source=_slVal('salesSourceFilter').toLowerCase();var q=_slVal('salesSearch').toLowerCase().trim();return all.filter(function(r){if(df&&r.date&&r.date<df)return false;if(dt&&r.date&&r.date>dt)return false;if(month&&r.monthApplicable!==month)return false;if(source&&String(r.source).toLowerCase()!==source)return false;if(q){var blob=[r.orderNumber,r.customer,r.productDescription,r.source,r.paymentMode].join(' ').toLowerCase();if(blob.indexOf(q)<0)return false}return true})}
   function refreshSalesFilters(){var srcSel=$('salesSourceFilter');if(srcSel){var curSrc=srcSel.value;var srcs={};(records||[]).forEach(function(r){var s=String(r.source||'').trim();if(s)srcs[s]=true});var sortedSrcs=Object.keys(srcs).sort();srcSel.innerHTML='<option value="">All sources</option>'+sortedSrcs.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>'}).join('');if(curSrc&&srcs[curSrc])srcSel.value=curSrc}var monSel=$('salesMonthFilter');if(monSel){var curMon=monSel.value;var months={};(records||[]).forEach(function(r){var iso=String(r.date||'').match(/^(\d{4})-(\d{2})/);if(iso){var key=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1];months[key]=true}});var sortedMonths=Object.keys(months).sort(function(a,b){var ma=a.match(/(\w+) (\d{4})/),mb=b.match(/(\w+) (\d{4})/);if(!ma||!mb)return 0;if(ma[2]!==mb[2])return ma[2]<mb[2]?1:-1;return SALES_MONTHS.indexOf(mb[1])-SALES_MONTHS.indexOf(ma[1])});monSel.innerHTML='<option value="">All Months</option>'+sortedMonths.map(function(m){return '<option value="'+esc(m)+'">'+esc(m)+'</option>'}).join('');if(curMon&&months[curMon])monSel.value=curMon}}
   function fmt2(n){return (Math.round((Number(n)||0)*100)/100).toFixed(2)}
   function renderSalesPagination(page,totalPages,total){var el=$('salesPagination');if(!el)return;if(salesReportPageSize==='all'||totalPages<=1){el.innerHTML='<span class="page-info">Showing all '+total+' record'+(total===1?'':'s')+'</span>';return}var startIdx=(page-1)*salesReportPageSize+1;var endIdx=Math.min(page*salesReportPageSize,total);el.innerHTML='<button type="button" class="btn" id="salesPrevBtn"'+(page<=1?' disabled':'')+'>← Prev</button><span class="page-info">'+startIdx+'–'+endIdx+' of '+total+' · Page '+page+' of '+totalPages+'</span><button type="button" class="btn" id="salesNextBtn"'+(page>=totalPages?' disabled':'')+'>Next →</button>';var pb=$('salesPrevBtn');if(pb)pb.onclick=function(){if(salesReportPage>1){salesReportPage--;renderSalesReport()}};var nb=$('salesNextBtn');if(nb)nb.onclick=function(){salesReportPage++;renderSalesReport()}}
@@ -2289,9 +2261,9 @@ main.shell > *{max-width:100%}
     var totalFrt=data.reduce(function(s,r){return s+(Number(r.freightOutExpense)||0)},0);
     var totalWht=data.reduce(function(s,r){return s+(Number(r.withHoldingTax)||0)},0);
     var totalNet=data.reduce(function(s,r){return s+(Number(r.netTotal)||0)},0);
-    $('slTotalOrders').textContent=totalOrders;$('slTotalQty').textContent=totalQty;$('slGross').textContent=money(totalGross);$('slCommission').textContent=money(totalCommission);$('slAdvertising').textContent=money(totalAdv);$('slFreight').textContent=money(totalFrt);$('slWHT').textContent=money(totalWht);$('slNet').textContent=money(totalNet);
+    var _slSet=function(id,v){var el=$(id);if(el)el.textContent=v};_slSet('slTotalOrders',totalOrders);_slSet('slTotalQty',totalQty);_slSet('slGross',money(totalGross));_slSet('slCommission',money(totalCommission));_slSet('slAdvertising',money(totalAdv));_slSet('slFreight',money(totalFrt));_slSet('slWHT',money(totalWht));_slSet('slNet',money(totalNet));
     renderSalesPagination(salesReportPage,totalPages,total)}
-  function clearSalesFilters(){$('salesDateFrom').value='';$('salesDateTo').value='';$('salesMonthFilter').value='';$('salesSourceFilter').value='';$('salesOrderSearch').value='';$('salesProductSearch').value='';salesReportPage=1;renderSalesReport()}
+  function clearSalesFilters(){['salesDateFrom','salesDateTo','salesMonthFilter','salesSourceFilter','salesSearch'].forEach(function(id){var el=$(id);if(el)el.value=''});salesReportPage=1;renderSalesReport()}
   function loadXLSXLib(cb){if(typeof XLSX!=='undefined'){cb();return}var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=function(){cb()};s.onerror=function(){toast('Failed to load Excel library. Check internet connection.',true)};document.head.appendChild(s)}
   function exportSalesReportXlsx(){var data=filteredSalesRows();if(!data.length){toast('No data to export for the current filter.',true);return}var btn=$('salesExportBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Preparing…';loadXLSXLib(function(){try{var headers=['Ord. No.','Month Applicable','Date','Ord. Type','Order Number','Source','Exptd. Date','Customer','Product Description','Qty.','Unit Price','Gross','Commission Expense','Advertising Expense','Freight Out Expense','Others','Withholding Tax','Net Total','Payment Mode','Sales Invoice','Days Past Due'];var aoa=[headers];data.forEach(function(r){var dateVal='';if(r.date&&/^\d{4}-\d{2}-\d{2}/.test(r.date)){var d=new Date(r.date+'T00:00:00');if(!isNaN(d))dateVal=d}aoa.push([r.ordNo,r.monthApplicable,dateVal||r.date,r.ordType,r.orderNumber,r.source,r.exptdDate,r.customer,r.productDescription,Number(r.qty)||0,Number(r.unitPrice)||0,Number(r.gross)||0,Number(r.commissionExpense)||0,Number(r.advertisingExpense)||0,Number(r.freightOutExpense)||0,r.others,Number(r.withHoldingTax)||0,Number(r.netTotal)||0,r.paymentMode,r.salesInvoice,r.daysPastDue])});var ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});ws['!cols']=[{wch:8},{wch:18},{wch:12},{wch:10},{wch:22},{wch:12},{wch:12},{wch:24},{wch:32},{wch:8},{wch:12},{wch:12},{wch:16},{wch:16},{wch:16},{wch:10},{wch:14},{wch:12},{wch:14},{wch:14},{wch:12}];ws['!views']=[{state:'frozen',ySplit:1}];var range=XLSX.utils.decode_range(ws['!ref']);ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:range.e.r,c:range.e.c}})};
       // Format numeric + date columns
@@ -2331,13 +2303,11 @@ main.shell > *{max-width:100%}
   $('costRouterPicker').addEventListener('change',function(){var v=this.value;if(v===''||v===null)return;var idx=Number(v);var m=routerMaterials[idx];if(!m)return;selectedRouters.push({idx:idx,qty:1,amount:Number(m.amount)||0,supplier:''});renderSelectedRouters()});
   $('costOthersOrderNumber').addEventListener('change',function(){populateCostOthersForm(this.value)});$('costOthersForm').onsubmit=saveCostOthersEntry;$('costOthersResetBtn').onclick=clearCostOthersForm;$('costOthersDate').value=today();
   ['costReportSearch','costReportSupplierFilter','costReportDateFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='costReportSearch'?'input':'change',renderCostReport)});var crExport=$('costReportExportBtn');if(crExport)crExport.onclick=exportCostReportCsv;
-  // Sales Export wiring
-  var salesApply=$('salesApplyFilterBtn');if(salesApply)salesApply.onclick=function(){salesReportPage=1;renderSalesReport()};
+  // Sales Report wiring
   var salesClear=$('salesClearFilterBtn');if(salesClear)salesClear.onclick=clearSalesFilters;
   var salesExport=$('salesExportBtn');if(salesExport)salesExport.onclick=exportSalesReportXlsx;
-  var salesExportHero=$('salesExportBtnHero');if(salesExportHero)salesExportHero.onclick=exportSalesReportXlsx;
   var salesPageSizeEl=$('salesPageSize');if(salesPageSizeEl)salesPageSizeEl.addEventListener('change',function(){var v=salesPageSizeEl.value;salesReportPageSize=v==='all'?'all':(parseInt(v,10)||50);salesReportPage=1;renderSalesReport()});
-  ['salesOrderSearch','salesProductSearch'].forEach(function(id){var el=$(id);if(el)el.addEventListener('input',function(){salesReportPage=1;renderSalesReport()})});
+  var salesSearchEl=$('salesSearch');if(salesSearchEl)salesSearchEl.addEventListener('input',function(){salesReportPage=1;renderSalesReport()});
   ['salesDateFrom','salesDateTo','salesMonthFilter','salesSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener('change',function(){salesReportPage=1;renderSalesReport()})});
   var lazadaBtn=$('lazadaRecomputeBtn');if(lazadaBtn){lazadaBtn.onclick=async function(){var useFallback=confirm('Recompute deductions for every order using the latest marketplace mappings?\n\nRoutes each record by its Source column: Lazada → IncomeDetails, Shopee → IncomeShopee.\n\nClick OK to use the built-in code fallback ONLY (bypasses the mapping sheets — safest if a sheet has wrong mappings).\n\nClick Cancel to use the mapping sheets (with fallback filling gaps).');lazadaBtn.disabled=true;var oldText=lazadaBtn.textContent;lazadaBtn.textContent='Recomputing…';try{var res=await api('/api/records/marketplace-recompute',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({forceFallback:useFallback})});try{console.log('marketplace-recompute:',res)}catch(_){}var msg='✓ Recomputed '+res.updated+' of '+res.scanned+' records ('+(res.matchedLazada||0)+' Lazada + '+(res.matchedShopee||0)+' Shopee)'+(useFallback?' — using code fallback only':'');if(res.unmappedLabels&&res.unmappedLabels.length)msg+='. ⚠ Unmapped: '+res.unmappedLabels.join(', ');toast(msg);await loadLazadaAvailableOrders();await loadRecords()}catch(err){toast('Recompute failed: '+(err.message||'unknown error'),true)}finally{lazadaBtn.disabled=false;lazadaBtn.textContent=oldText}}}
   $('description').addEventListener('change',toggleLicenseField);
