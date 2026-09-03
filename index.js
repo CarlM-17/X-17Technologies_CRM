@@ -1644,6 +1644,19 @@ main.shell > *{max-width:100%}
 .cost-items-grid .cost-item input.supplier-input:focus,.cost-items-grid .cost-item select.supplier-select:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
 .cost-items-grid .cost-item select.supplier-select{cursor:pointer;appearance:auto}
 
+/* Sales Report — summary cards strip (Gross · Deductions · Cost & Expenses · Net) */
+.sales-summary-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:14px 20px;background:linear-gradient(180deg,#fbfdff,#fff);border-bottom:1px solid var(--line)}
+.sales-summary-card{background:#fff;border:1px solid var(--line);border-top:3px solid var(--sc-accent,var(--primary));border-radius:10px;padding:12px 14px;box-shadow:0 2px 6px rgba(11,42,85,0.04);transition:transform .15s ease,box-shadow .15s ease}
+.sales-summary-card:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(11,42,85,0.08)}
+.sales-summary-card .sales-summary-label{color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;line-height:1.2}
+.sales-summary-card .sales-summary-value{color:var(--sc-accent,var(--primary));font-size:19px;font-weight:800;margin-top:6px;letter-spacing:-.015em;font-variant-numeric:tabular-nums;line-height:1.2}
+.sales-summary-card.sc-gross{--sc-accent:#1769E0}
+.sales-summary-card.sc-deductions{--sc-accent:#F4A62A}
+.sales-summary-card.sc-cost{--sc-accent:#DC3545}
+.sales-summary-card.sc-net{--sc-accent:#18A673}
+@media(max-width:900px){.sales-summary-cards{grid-template-columns:repeat(2,1fr);gap:10px;padding:12px 14px}.sales-summary-card .sales-summary-value{font-size:17px}}
+@media(max-width:480px){.sales-summary-cards{grid-template-columns:1fr}}
+
 /* Sales Report tab — compact single-panel layout */
 /* CRITICAL: min-width:0 chain so the 2100px-wide table stays inside .table-scroll and doesn't blow out the page layout */
 #viewSalesExport{min-width:0;max-width:100%}
@@ -2122,6 +2135,12 @@ main.shell > *{max-width:100%}
 <div class="content">
   <section class="panel table-panel">
     <div class="panel-title"><h3>Sales Report</h3><div class="cost-log-tools"><span id="salesCount">0 records</span><select id="salesPageSize" aria-label="Rows per page" class="sales-inline-select"><option value="25">25 / page</option><option value="50" selected>50 / page</option><option value="100">100 / page</option><option value="all">All</option></select><button type="button" class="btn primary btn-sm" id="salesExportBtn">↓ Export to Excel</button></div></div>
+    <div class="sales-summary-cards">
+      <div class="sales-summary-card sc-gross"><div class="sales-summary-label">Gross Sales</div><div class="sales-summary-value" id="salesSumGross">₱0.00</div></div>
+      <div class="sales-summary-card sc-deductions"><div class="sales-summary-label">Deductions</div><div class="sales-summary-value" id="salesSumDeductions">₱0.00</div></div>
+      <div class="sales-summary-card sc-cost"><div class="sales-summary-label">Cost &amp; Expenses</div><div class="sales-summary-value" id="salesSumCost">₱0.00</div></div>
+      <div class="sales-summary-card sc-net"><div class="sales-summary-label">Net Amount</div><div class="sales-summary-value" id="salesSumNet">₱0.00</div></div>
+    </div>
     <div class="toolbar sales-toolbar">
       <div class="search"><input id="salesSearch" type="search" placeholder="Search order #, customer, product…" aria-label="Search sales"></div>
       <select id="salesMonthFilter" aria-label="Filter by month"><option value="">All months</option></select>
@@ -2383,6 +2402,13 @@ main.shell > *{max-width:100%}
     var totalWht=data.reduce(function(s,r){return s+(Number(r.withHoldingTax)||0)},0);
     var totalNet=data.reduce(function(s,r){return s+(Number(r.netTotal)||0)},0);
     var _slSet=function(id,v){var el=$(id);if(el)el.textContent=v};_slSet('slTotalOrders',totalOrders);_slSet('slTotalQty',totalQty);_slSet('slGross',money(totalGross));_slSet('slCommission',money(totalCommission));_slSet('slAdvertising',money(totalAdv));_slSet('slFreight',money(totalFrt));_slSet('slWHT',money(totalWht));_slSet('slNet',money(totalNet));
+    // Summary cards strip: Gross · Deductions (= gross − netTotal per row) · Cost & Expenses (from costEntries) · Net Amount
+    var _costByOrder={};(costEntries||[]).forEach(function(e){var k=String(e.orderNumber||'').trim();if(!k)return;_costByOrder[k]=(_costByOrder[k]||0)+(Number(e.total)||0)});
+    var sumGross=0,sumNetTotal=0,sumCost=0;
+    data.forEach(function(r){var g=Number(r.gross)||0;var nt=Number(r.netTotal)||0;var c=_costByOrder[String(r.orderNumber||'').trim()]||0;sumGross+=g;sumNetTotal+=nt;sumCost+=c});
+    var sumDeductions=sumGross-sumNetTotal;
+    var sumNet=sumGross-sumDeductions-sumCost;
+    _slSet('salesSumGross',money(sumGross));_slSet('salesSumDeductions',money(sumDeductions));_slSet('salesSumCost',money(sumCost));_slSet('salesSumNet',money(sumNet));
     renderSalesPagination(salesReportPage,totalPages,total)}
   function clearSalesFilters(){['salesDateFrom','salesDateTo','salesMonthFilter','salesSourceFilter','salesSearch'].forEach(function(id){var el=$(id);if(el)el.value=''});salesReportPage=1;renderSalesReport()}
   function loadXLSXLib(cb){if(typeof XLSX!=='undefined'){cb();return}var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=function(){cb()};s.onerror=function(){toast('Failed to load Excel library. Check internet connection.',true)};document.head.appendChild(s)}
