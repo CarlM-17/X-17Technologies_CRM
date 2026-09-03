@@ -1796,7 +1796,7 @@ main.shell > *{max-width:100%}
 <div class="content">
   <section class="metrics income-metrics">
     <article class="metric"><div class="metric-top"><span>Total Revenue</span><i class="metric-icon">₱</i></div><div class="metric-value" id="idRevenue">₱0</div><div class="metric-foot">Across paid orders</div></article>
-    <article class="metric"><div class="metric-top"><span>Cost &amp; Expenses</span><i class="metric-icon">▤</i></div><div class="metric-value" id="idCost">₱0</div><div class="metric-foot">Materials + router</div></article>
+    <article class="metric"><div class="metric-top"><span>Cost &amp; Expenses</span><i class="metric-icon">▤</i></div><div class="metric-value" id="idCost">₱0</div><div class="metric-foot">Materials + router + others</div></article>
     <article class="metric"><div class="metric-top"><span>Deductions</span><i class="metric-icon">−</i></div><div class="metric-value" id="idDeductions">₱0</div><div class="metric-foot">Commission, fees, WHT</div></article>
     <article class="metric"><div class="metric-top"><span>Net Income</span><i class="metric-icon">✓</i></div><div class="metric-value" id="idIncome">₱0</div><div class="metric-foot">Revenue − Cost − Deductions</div></article>
     <article class="metric"><div class="metric-top"><span>Avg GP %</span><i class="metric-icon">%</i></div><div class="metric-value" id="idGP">0%</div><div class="metric-foot">Gross profit margin</div></article>
