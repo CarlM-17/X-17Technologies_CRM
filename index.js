@@ -990,17 +990,24 @@ app.get('/api/marketplace/sales-dates', async (_req, res) => {
     let incRows = [];
     try { incRows = await getValues(INCOME_DETAILS_SHEET); } catch (e) { console.warn('IncomeDetails read failed:', e.message); }
     let shopRows = [];
-    // Shopee needs col AH (idx 33) so read past col Z
     try { shopRows = await getValuesRange(SHOPEE_SHEET, 'A:AZ'); } catch (e) { console.warn('IncomeShopee read failed:', e.message); }
 
-    // Lazada aggregate per order from IncomeDetails
-    //   col K (idx 10)  = Order Number
-    //   col H (idx 7)   = Date
-    //   col D (idx 3)   = Fee label
-    //   col E (idx 4)   = Amount  (Item Price Credit is positive; deductions are negative)
-    // gross = sum of "Item Price Credit" absolute values for that order
+    // Mappings for deductions (same used in Recompute)
+    let lazMapRows = [];
+    try { lazMapRows = await getValues(LAZADA_DEDUCTIONS_SHEET); } catch (e) { /* fallback OK */ }
+    const lazMapping = buildLazadaMapping(lazMapRows, {});
+    let shopMapRows = [];
+    try { shopMapRows = await getValues(SHOPEE_DEDUCTIONS_SHEET); } catch (e) { /* fallback OK */ }
+    const shopMapping = buildShopeeMapping(shopMapRows, {});
+    let confData = [];
+    try { const cr = await getValuesRange(CONFIRMED_SHEET, 'A:BA'); confData = cr.slice(2); } catch (e) { /* best-effort */ }
+
+    // ---- Lazada: aggregate per order from IncomeDetails ----
+    // col K (idx 10) = Order Number, col H (idx 7) = Date, col D (idx 3) = Fee label, col E (idx 4) = Amount
+    // gross = sum of |E| where D contains "Item Price"; deductions from other rows via mapping
+    const incData = incRows.slice(2);
     const lazada = {};
-    incRows.slice(2).forEach(r => {
+    incData.forEach(r => {
       const order = normalizeOrder(r?.[10]);
       if (!order) return;
       if (!lazada[order]) lazada[order] = { date: '', gross: 0 };
@@ -1011,30 +1018,53 @@ app.get('/api/marketplace/sales-dates', async (_req, res) => {
       const label = String(r?.[3] || '').trim();
       const raw = Number(String(r?.[4] || '0').replace(/[^0-9.-]/g, ''));
       const val = Number.isFinite(raw) ? raw : 0;
-      // "Item Price Credit" or any label containing that phrase / "item price"
       if (/item\s*price/i.test(label)) {
         lazada[order].gross += Math.abs(val);
       }
     });
-    // Round
-    Object.keys(lazada).forEach(k => { lazada[k].gross = +lazada[k].gross.toFixed(2); });
+    // Add deductions per order using existing mapping-aware helper
+    Object.keys(lazada).forEach(order => {
+      const gross = lazada[order].gross;
+      const result = computeLazadaFillForOrder(order, incData, lazMapping, confData, gross);
+      const f = (result && result.fill) || { commissionExpense: 0, advertisingExpense: 0, freightOutExpense: 0, withHoldingTax: 0, paymentFee: 0, orderProcessingFee: 0, paymentMode: '', netTotal: gross };
+      lazada[order].gross = +gross.toFixed(2);
+      lazada[order].commissionExpense = +Number(f.commissionExpense || 0).toFixed(2);
+      lazada[order].advertisingExpense = +Number(f.advertisingExpense || 0).toFixed(2);
+      lazada[order].freightOutExpense = +Number(f.freightOutExpense || 0).toFixed(2);
+      lazada[order].withHoldingTax = +Number(f.withHoldingTax || 0).toFixed(2);
+      lazada[order].paymentFee = +Number(f.paymentFee || 0).toFixed(2);
+      lazada[order].orderProcessingFee = +Number(f.orderProcessingFee || 0).toFixed(2);
+      lazada[order].paymentMode = String(f.paymentMode || '');
+      lazada[order].netTotal = +Number(f.netTotal || gross).toFixed(2);
+    });
 
-    // Shopee: one row per order in IncomeShopee
-    //   col B (idx 1)   = Order Number
-    //   col K (idx 10)  = Transaction Date
-    //   col L (idx 11)  = Gross / Unit Price
-    //   col AH (idx 33) = Net (already computed by Shopee = total release − deductions AA:AE)
+    // ---- Shopee: one row per order in IncomeShopee ----
+    // col B (idx 1) = Order Number, col K (idx 10) = Transaction Date, col L (idx 11) = Gross, col AH (idx 33) = Net
+    const shopData = shopRows.slice(2);
     const shopee = {};
-    shopRows.slice(2).forEach(r => {
+    shopData.forEach(r => {
       const order = normalizeOrder(r?.[SHOPEE_COLS.order]);
       if (!order || shopee[order]) return;
       const date = parseLazadaDate(r?.[10]);
       const rawGross = Number(String(r?.[11] || '0').replace(/[^0-9.-]/g, ''));
       const rawNet = Number(String(r?.[33] || '0').replace(/[^0-9.-]/g, ''));
+      const gross = Math.abs(Number.isFinite(rawGross) ? rawGross : 0);
+      const net = Math.abs(Number.isFinite(rawNet) ? rawNet : 0);
+      // Compute deductions using shopee helper (reads fee columns AA-AE via mapping)
+      const result = computeShopeeFillForOrder(order, shopData, shopMapping, gross);
+      const f = (result && result.fill) || { commissionExpense: 0, advertisingExpense: 0, freightOutExpense: 0, withHoldingTax: 0, paymentFee: 0, orderProcessingFee: 0, paymentMode: '', netTotal: gross };
       shopee[order] = {
         date: date,
-        gross: +Math.abs(Number.isFinite(rawGross) ? rawGross : 0).toFixed(2),
-        net: +Math.abs(Number.isFinite(rawNet) ? rawNet : 0).toFixed(2)
+        gross: +gross.toFixed(2),
+        commissionExpense: +Number(f.commissionExpense || 0).toFixed(2),
+        advertisingExpense: +Number(f.advertisingExpense || 0).toFixed(2),
+        freightOutExpense: +Number(f.freightOutExpense || 0).toFixed(2),
+        withHoldingTax: +Number(f.withHoldingTax || 0).toFixed(2),
+        paymentFee: +Number(f.paymentFee || 0).toFixed(2),
+        orderProcessingFee: +Number(f.orderProcessingFee || 0).toFixed(2),
+        paymentMode: String(f.paymentMode || ''),
+        net: +net.toFixed(2),
+        netTotal: net > 0 ? +net.toFixed(2) : +Number(f.netTotal || gross).toFixed(2)
       };
     });
 
@@ -2299,8 +2329,9 @@ main.shell > *{max-width:100%}
   var salesReportPageSize=50;
   var marketplaceSalesDates={Lazada:{},Shopee:{}};
   async function loadMarketplaceSalesDates(){try{var d=await api('/api/marketplace/sales-dates');marketplaceSalesDates={Lazada:d.Lazada||{},Shopee:d.Shopee||{}}}catch(e){marketplaceSalesDates={Lazada:{},Shopee:{}}}}
-  function _marketplaceInfoFor(r){if(!r||!r.orderNumber)return null;var src=String(r.source||'').trim();var isShopee=/shopee/i.test(src);var bucket=isShopee?marketplaceSalesDates.Shopee:marketplaceSalesDates.Lazada;var entry=bucket&&bucket[String(r.orderNumber).trim()];if(!entry)return null;return {date:entry.date||'',gross:Number(entry.gross)||0,net:Number(entry.net)||0,source:isShopee?'Shopee':'Lazada'}}
-  function buildSalesReportRows(){return (records||[]).map(function(r){return {r:r,info:_marketplaceInfoFor(r)}}).filter(function(x){return Boolean(x.info&&x.info.date)}).map(function(x){var r=x.r;var info=x.info;var qty=Number(r.qty)||1;if(qty<1)qty=1;var recordPrice=Number(r.price)||0;var gross=info.gross>0?info.gross:recordPrice;gross=+gross.toFixed(2);var unitPrice=qty>0?+(gross/qty).toFixed(2):gross;var commission=Number(r.commissionExpense)||0;var advertising=Number(r.advertisingExpense)||0;var freight=Number(r.freightOutExpense)||0;var wht=Number(r.withHoldingTax)||0;var netTotal;if(info.source==='Shopee'&&info.net>0){netTotal=info.net}else{var saved=Number(r.netTotal);if(Number.isFinite(saved)&&saved!==0){netTotal=+(gross-commission-advertising-freight-wht).toFixed(2)}else{netTotal=+(gross-commission-advertising-freight-wht).toFixed(2)}}var monthApplicable='';var iso=String(info.date||'').match(/^(\d{4})-(\d{2})/);if(iso){monthApplicable=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1]}return {ordNo:'',monthApplicable:monthApplicable,date:String(info.date||''),ordType:'Sales',orderNumber:String(r.orderNumber||''),source:String(r.source||''),exptdDate:'',customer:String(r.customerName||''),productDescription:String(r.description||''),qty:qty,unitPrice:unitPrice,gross:gross,commissionExpense:+commission.toFixed(2),advertisingExpense:+advertising.toFixed(2),freightOutExpense:+freight.toFixed(2),others:'',withHoldingTax:+wht.toFixed(2),netTotal:+netTotal.toFixed(2),paymentMode:String(r.paymentMode||''),salesInvoice:'',daysPastDue:''}})}
+  function _normOrder(v){return String(v==null?'':v).trim()}
+  function _buildSalesRow(orderNum,mp,rec,src){var qty=Number(rec.qty)||1;if(qty<1)qty=1;var gross=Number(mp.gross)||0;var unitPrice=qty>0?gross/qty:gross;var commission=Number(mp.commissionExpense)||0;var advertising=Number(mp.advertisingExpense)||0;var freight=Number(mp.freightOutExpense)||0;var wht=Number(mp.withHoldingTax)||0;var paymentFee=Number(mp.paymentFee)||0;var orderProc=Number(mp.orderProcessingFee)||0;var netTotal=Number(mp.netTotal);if(!Number.isFinite(netTotal)||netTotal===0){netTotal=gross-commission-advertising-freight-wht-paymentFee-orderProc}var monthApplicable='';var iso=String(mp.date||'').match(/^(\d{4})-(\d{2})/);if(iso){monthApplicable=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1]}return {ordNo:'',monthApplicable:monthApplicable,date:String(mp.date||''),ordType:'Sales',orderNumber:orderNum,source:String(rec.source||src||''),exptdDate:'',customer:String(rec.customerName||''),productDescription:String(rec.description||''),qty:qty,unitPrice:+unitPrice.toFixed(2),gross:+gross.toFixed(2),commissionExpense:+commission.toFixed(2),advertisingExpense:+advertising.toFixed(2),freightOutExpense:+freight.toFixed(2),others:'',withHoldingTax:+wht.toFixed(2),netTotal:+netTotal.toFixed(2),paymentMode:String(rec.paymentMode||mp.paymentMode||''),salesInvoice:'',daysPastDue:''}}
+  function buildSalesReportRows(){var rows=[];var recordByOrder={};(records||[]).forEach(function(r){var o=_normOrder(r.orderNumber);if(o&&!recordByOrder[o])recordByOrder[o]=r});var lazadaMap=marketplaceSalesDates.Lazada||{};Object.keys(lazadaMap).forEach(function(orderNum){var mp=lazadaMap[orderNum];if(!mp||!mp.date)return;rows.push(_buildSalesRow(orderNum,mp,recordByOrder[orderNum]||{},'Lazada'))});var shopeeMap=marketplaceSalesDates.Shopee||{};Object.keys(shopeeMap).forEach(function(orderNum){var mp=shopeeMap[orderNum];if(!mp||!mp.date)return;rows.push(_buildSalesRow(orderNum,mp,recordByOrder[orderNum]||{},'Shopee'))});return rows}
   function _slVal(id){var el=$(id);return el?(el.value||''):''}
   function filteredSalesRows(){var all=buildSalesReportRows();var df=_slVal('salesDateFrom');var dt=_slVal('salesDateTo');var month=_slVal('salesMonthFilter');var source=_slVal('salesSourceFilter').toLowerCase();var q=_slVal('salesSearch').toLowerCase().trim();return all.filter(function(r){if(df&&r.date&&r.date<df)return false;if(dt&&r.date&&r.date>dt)return false;if(month&&r.monthApplicable!==month)return false;if(source&&String(r.source).toLowerCase()!==source)return false;if(q){var blob=[r.orderNumber,r.customer,r.productDescription,r.source,r.paymentMode].join(' ').toLowerCase();if(blob.indexOf(q)<0)return false}return true})}
   function refreshSalesFilters(){var srcSel=$('salesSourceFilter');if(srcSel){var curSrc=srcSel.value;var srcs={};(records||[]).forEach(function(r){var s=String(r.source||'').trim();if(s)srcs[s]=true});var sortedSrcs=Object.keys(srcs).sort();srcSel.innerHTML='<option value="">All sources</option>'+sortedSrcs.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>'}).join('');if(curSrc&&srcs[curSrc])srcSel.value=curSrc}var monSel=$('salesMonthFilter');if(monSel){var curMon=monSel.value;var months={};(records||[]).forEach(function(r){var iso=String(r.date||'').match(/^(\d{4})-(\d{2})/);if(iso){var key=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1];months[key]=true}});var sortedMonths=Object.keys(months).sort(function(a,b){var ma=a.match(/(\w+) (\d{4})/),mb=b.match(/(\w+) (\d{4})/);if(!ma||!mb)return 0;if(ma[2]!==mb[2])return ma[2]<mb[2]?1:-1;return SALES_MONTHS.indexOf(mb[1])-SALES_MONTHS.indexOf(ma[1])});monSel.innerHTML='<option value="">All Months</option>'+sortedMonths.map(function(m){return '<option value="'+esc(m)+'">'+esc(m)+'</option>'}).join('');if(curMon&&months[curMon])monSel.value=curMon}}
