@@ -1545,6 +1545,51 @@ main.shell > *{max-width:100%}
 .cost-items-grid .cost-item input.supplier-input:focus,.cost-items-grid .cost-item select.supplier-select:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 2px var(--accent-soft)}
 .cost-items-grid .cost-item select.supplier-select{cursor:pointer;appearance:auto}
 
+/* Sales Data Export tab */
+.sales-filter-panel .form-body{padding:16px 20px}
+.sales-filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 14px}
+.sales-filter-actions{display:flex!important;justify-content:flex-end!important;gap:10px!important;grid-template-columns:none!important;margin-top:14px!important;padding-top:14px!important;border-top:1px solid var(--line)}
+.sales-metrics{grid-template-columns:repeat(8,1fr)!important;margin:0 0 16px!important;gap:10px}
+.sales-metrics .metric{padding:12px 14px!important}
+.sales-metrics .metric-value{font-size:18px!important;margin-top:8px!important}
+.sales-metrics .metric-top{font-size:10px}
+.sales-metrics .metric-icon{width:26px!important;height:26px!important;font-size:12px!important}
+.sales-metrics .metric-foot{font-size:10px}
+.sales-report-table{width:100%;border-collapse:collapse;min-width:2100px;font-size:12px}
+.sales-report-table th{background:var(--panel2);color:var(--primary);font-size:10px;text-transform:uppercase;letter-spacing:.05em;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:700;position:sticky;top:0;z-index:2;white-space:nowrap}
+.sales-report-table th.num{text-align:right}
+.sales-report-table td{padding:10px 12px;border-bottom:1px solid #f1f5f9;vertical-align:middle;color:var(--text);white-space:nowrap;font-variant-numeric:tabular-nums}
+.sales-report-table td.num{text-align:right;font-weight:600}
+.sales-report-table tr:hover td{background:var(--accent-softer)}
+.sales-report-table tr:nth-child(even) td{background:#fbfdff}
+.sales-report-table tr:nth-child(even):hover td{background:var(--accent-softer)}
+.sales-report-table td.order-cell{font-variant-numeric:tabular-nums;font-weight:600;color:var(--primary)}
+#viewSalesExport .table-scroll{overflow-x:auto;max-height:640px}
+.sales-pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-top:1px solid var(--line);background:var(--panel2);border-radius:0 0 14px 14px;flex-wrap:wrap}
+.sales-pagination .btn{padding:6px 12px;min-height:32px;font-size:12px}
+.sales-pagination .btn:disabled{opacity:.4;cursor:not-allowed}
+.sales-pagination .page-info{font-size:12px;color:var(--muted);font-weight:600;padding:0 8px}
+@media(max-width:1100px){
+  .sales-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sales-metrics{grid-template-columns:repeat(4,1fr)!important}
+}
+@media(max-width:900px){
+  .sales-report-table{min-width:0}
+  .sales-report-table thead{display:none}
+  .sales-report-table tbody,.sales-report-table tr,.sales-report-table td{display:block}
+  .sales-report-table tr{margin:10px 8px 12px;border:1px solid var(--line);border-radius:14px;background:#fff!important;box-shadow:0 4px 16px rgba(11,37,69,0.06);padding:4px 0}
+  .sales-report-table td{padding:8px 14px;border-bottom:1px solid #f1f5f9;display:grid;grid-template-columns:130px 1fr;gap:10px;white-space:normal;text-align:left}
+  .sales-report-table td:before{content:attr(data-label);color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+  .sales-report-table td:last-child{border-bottom:none}
+  .sales-report-table td.num{text-align:left}
+  .sales-report-table tr:nth-child(even) td{background:transparent!important}
+  #viewSalesExport .table-scroll{overflow-x:hidden;max-height:none}
+}
+@media(max-width:640px){
+  .sales-filter-grid{grid-template-columns:1fr}
+  .sales-metrics{grid-template-columns:repeat(2,1fr)!important}
+}
+
 /* Cost & Expenses Report tab */
 .cost-report-table{width:100%;border-collapse:collapse;min-width:1500px;font-size:12px}
 .cost-report-table th{background:var(--panel2);color:var(--primary);font-size:10px;text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);font-weight:700;position:sticky;top:0;z-index:2;white-space:nowrap}
@@ -1779,7 +1824,7 @@ main.shell > *{max-width:100%}
 <header class="topbar"><div class="brand"><img class="logo" src="/logo.png" alt="X-17 Technologies logo"><div><h1>X-17 Technologies CRM</h1><p>Sales intelligence command center</p></div></div><div class="top-actions"><div class="status"><i class="dot" id="statusDot"></i><span id="statusText">Checking connection</span></div><a class="btn" id="sheetLink" target="_blank" rel="noopener"><span>↗</span><span class="sheet-label">Open Google Sheet</span></a></div></header>
 <section class="hero"><div class="hero-main"><div class="eyebrow">Customer intelligence • Live operations</div><h2>Turn every sale into a smarter customer relationship.</h2><p>Capture customer records, monitor product performance, and keep your team synchronized with one clear, mobile-ready workspace.</p></div><div class="sync-card"><div class="sync-head"><div><div class="eyebrow">Data uplink</div><strong>Google Sheets</strong></div><div class="sync-orb"></div></div><p id="syncCopy">Connecting to your workspace…</p><div class="sync-meta"><span id="syncTime">Not synced yet</span><span id="recordSheet">CRM Records</span></div></div></section>
 <section class="metrics"><article class="metric"><div class="metric-top"><span>Total records</span><i class="metric-icon">▦</i></div><div class="metric-value" id="mRecords">0</div><div class="metric-foot"><span class="positive">Live</span> customer database</div></article><article class="metric"><div class="metric-top"><span>Total sales</span><i class="metric-icon">₱</i></div><div class="metric-value" id="mSales">₱0</div><div class="metric-foot">Across visible records</div></article><article class="metric"><div class="metric-top"><span>This month</span><i class="metric-icon">◫</i></div><div class="metric-value" id="mMonth">0</div><div class="metric-foot">New customer entries</div></article><article class="metric"><div class="metric-top"><span>Top product</span><i class="metric-icon">◇</i></div><div class="metric-value" id="mTop" style="font-size:16px;line-height:1.35">—</div><div class="metric-foot">By number of records</div></article><article class="metric"><div class="metric-top"><span>Paid orders</span><i class="metric-icon">✓</i></div><div class="metric-value" id="mPaidRatio">0 / 0</div><div class="metric-foot"><span class="positive" id="mPaidPct">0%</span> of orders paid</div></article></section>
-<nav class="view-tabs" role="tablist"><button class="view-tab active" data-view="records" role="tab" aria-selected="true">Customer Records</button><button class="view-tab" data-view="paid" role="tab" aria-selected="false">Paid</button><button class="view-tab" data-view="pending" role="tab" aria-selected="false">Pending</button><button class="view-tab" data-view="incomeDetails" role="tab" aria-selected="false">Income Details</button><button class="view-tab" data-view="costs" role="tab" aria-selected="false">Cost &amp; Expenses</button><button class="view-tab" data-view="editRaw" role="tab" aria-selected="false">Edit RawMaterials</button></nav>
+<nav class="view-tabs" role="tablist"><button class="view-tab active" data-view="records" role="tab" aria-selected="true">Customer Records</button><button class="view-tab" data-view="paid" role="tab" aria-selected="false">Paid</button><button class="view-tab" data-view="pending" role="tab" aria-selected="false">Pending</button><button class="view-tab" data-view="incomeDetails" role="tab" aria-selected="false">Income Details</button><button class="view-tab" data-view="costs" role="tab" aria-selected="false">Cost &amp; Expenses</button><button class="view-tab" data-view="salesExport" role="tab" aria-selected="false">Sales Data Export</button><button class="view-tab" data-view="editRaw" role="tab" aria-selected="false">Edit RawMaterials</button></nav>
 <div class="view active" id="viewRecords">
 <section class="workspace">
 <aside class="panel form-panel"><div class="panel-title"><h3 id="formTitle">Add customer record</h3><span>Secure entry</span></div><form class="form-body" id="recordForm"><div class="editing" id="editingBanner"><span>Editing selected record</span><button type="button" class="icon-btn" id="cancelEdit" aria-label="Cancel edit">×</button></div><div class="field"><label for="date">DATE <span class="req">*</span></label><input id="date" name="date" type="date" required></div><div class="field"><label for="description">DESCRIPTION / PRODUCT <span class="req">*</span></label><select id="description" name="description" required><option value="">Loading Product List…</option></select></div><div class="field" id="qtyField" style="display:none"><label for="qty">QTY <span style="font-weight:500;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">for non-vending products</span></label><input id="qty" name="qty" type="number" min="1" step="1" inputmode="numeric" placeholder="1"></div><div class="field" id="unitPriceField" style="display:none"><label for="unitPrice">UNIT PRICE (PHP) <span style="font-weight:500;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">Total auto-computes = Unit × QTY</span></label><input id="unitPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></div><div class="field"><label for="price">TOTAL PRICE (PHP) <span class="req">*</span></label><input id="price" name="price" type="number" min="0" step="0.01" placeholder="0.00" required></div><div class="field"><label for="customerName">CUSTOMER NAME <span class="req">*</span></label><input id="customerName" name="customerName" autocomplete="name" placeholder="Full name" required></div><div class="field"><label for="phoneNumber">PHONE NUMBER</label><input id="phoneNumber" name="phoneNumber" type="tel" autocomplete="tel" inputmode="tel" placeholder="e.g. 0917 123 4567"></div><div class="field"><label for="address">ADDRESS</label><input id="address" name="address" autocomplete="street-address" placeholder="Complete address"></div><div class="field"><label for="orderNumber">ORDER NUMBER</label><input id="orderNumber" name="orderNumber" placeholder="e.g. INV-1024"></div><div class="field" id="licenseNumberField"><label for="licenseNumber">LICENSE NUMBER</label><input id="licenseNumber" name="licenseNumber" placeholder="e.g. NTC / business license"></div><div class="field"><label for="source">SOURCE</label><select id="source" name="source"><option value="">Loading Source List…</option></select></div><div class="field"><label for="note">NOTE</label><textarea id="note" name="note" maxlength="1000" placeholder="Add context, follow-up, or special instructions"></textarea></div><div class="form-actions"><button class="btn primary" id="saveBtn" type="submit">＋ Add record</button><button class="btn" id="resetBtn" type="button">Clear</button><button class="btn danger" id="deleteBtn" type="button" disabled>Delete</button></div></form></aside>
@@ -1907,6 +1952,50 @@ main.shell > *{max-width:100%}
 </div>
 </section>
 </div>
+</div>
+<div class="view" id="viewSalesExport" hidden>
+<section class="workspace cost-workspace">
+<div class="content">
+  <section class="panel sales-filter-panel">
+    <div class="panel-title"><h3>Sales Data Filters</h3></div>
+    <div class="form-body">
+      <div class="sales-filter-grid">
+        <div class="field"><label for="salesDateFrom">DATE FROM</label><input id="salesDateFrom" type="date"></div>
+        <div class="field"><label for="salesDateTo">DATE TO</label><input id="salesDateTo" type="date"></div>
+        <div class="field"><label for="salesMonthFilter">MONTH</label><select id="salesMonthFilter"><option value="">All Months</option></select></div>
+        <div class="field"><label for="salesSourceFilter">SOURCE</label><select id="salesSourceFilter"><option value="">All sources</option></select></div>
+        <div class="field"><label for="salesOrderSearch">ORDER NUMBER SEARCH</label><input id="salesOrderSearch" type="search" placeholder="Order #…"></div>
+        <div class="field"><label for="salesProductSearch">PRODUCT SEARCH</label><input id="salesProductSearch" type="search" placeholder="Product name…"></div>
+      </div>
+      <div class="form-actions sales-filter-actions">
+        <button type="button" class="btn" id="salesClearFilterBtn">Clear Filter</button>
+        <button type="button" class="btn primary" id="salesApplyFilterBtn">Apply Filter</button>
+      </div>
+    </div>
+  </section>
+  <section class="metrics sales-metrics">
+    <article class="metric"><div class="metric-top"><span>Total Orders</span><i class="metric-icon">▤</i></div><div class="metric-value" id="slTotalOrders">0</div><div class="metric-foot">Unique order #</div></article>
+    <article class="metric"><div class="metric-top"><span>Total Quantity</span><i class="metric-icon">Σ</i></div><div class="metric-value" id="slTotalQty">0</div><div class="metric-foot">Items sold</div></article>
+    <article class="metric"><div class="metric-top"><span>Gross Sales</span><i class="metric-icon">₱</i></div><div class="metric-value" id="slGross">₱0</div><div class="metric-foot">Qty × Unit</div></article>
+    <article class="metric"><div class="metric-top"><span>Commission</span><i class="metric-icon">%</i></div><div class="metric-value" id="slCommission">₱0</div><div class="metric-foot">Marketplace fees</div></article>
+    <article class="metric"><div class="metric-top"><span>Advertising</span><i class="metric-icon">◈</i></div><div class="metric-value" id="slAdvertising">₱0</div><div class="metric-foot">Ad spend</div></article>
+    <article class="metric"><div class="metric-top"><span>Freight Out</span><i class="metric-icon">→</i></div><div class="metric-value" id="slFreight">₱0</div><div class="metric-foot">Shipping</div></article>
+    <article class="metric"><div class="metric-top"><span>Withholding Tax</span><i class="metric-icon">−</i></div><div class="metric-value" id="slWHT">₱0</div><div class="metric-foot">WHT</div></article>
+    <article class="metric"><div class="metric-top"><span>Net Total</span><i class="metric-icon">✓</i></div><div class="metric-value" id="slNet">₱0</div><div class="metric-foot">Net proceeds</div></article>
+  </section>
+  <section class="panel table-panel">
+    <div class="panel-title"><h3>Sales Data</h3><div class="cost-log-tools"><span id="salesCount">0 records</span><select id="salesPageSize" aria-label="Rows per page"><option value="25">25 / page</option><option value="50" selected>50 / page</option><option value="100">100 / page</option><option value="all">All</option></select><button type="button" class="btn primary btn-sm" id="salesExportBtn">↓ Export to Excel</button></div></div>
+    <div class="table-scroll">
+      <table class="sales-report-table">
+        <thead><tr><th>Ord. No.</th><th>Month Applicable</th><th>Date</th><th>Ord. Type</th><th>Order Number</th><th>Source</th><th>Exptd. Date</th><th>Customer</th><th>Product Description</th><th class="num">Qty.</th><th class="num">Unit Price</th><th class="num">Gross</th><th class="num">Commission Expense</th><th class="num">Advertising Expense</th><th class="num">Freight Out Expense</th><th>Others</th><th class="num">Withholding Tax</th><th class="num">Net Total</th><th>Payment Mode</th><th>Sales Invoice</th><th>Days Past Due</th></tr></thead>
+        <tbody id="salesReportRows"></tbody>
+      </table>
+      <div class="empty" id="salesEmpty"><div class="empty-icon">▤</div><strong>No sales records found for the selected criteria.</strong></div>
+    </div>
+    <div class="sales-pagination" id="salesPagination"></div>
+  </section>
+</div>
+</section>
 </div>
 <div class="view" id="viewEditRaw" hidden>
 <section class="workspace cost-workspace">
@@ -2052,7 +2141,7 @@ main.shell > *{max-width:100%}
   async function deleteIncome(){if(!incomeCurrentId)return;var r=records.find(function(v){return v.id===incomeCurrentId});if(!confirm('Delete the deductions for '+(r?r.customerName:'this record')+'? The customer record itself will be kept.'))return;var btn=$('incomeDeleteBtn');btn.disabled=true;try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'DELETE'});toast('Deductions cleared.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false}}
   $('incomeForm').onsubmit=saveIncome;$('incomeCancelBtn').onclick=closeIncomeModal;$('closeIncomeBtn').onclick=closeIncomeModal;$('incomeDeleteBtn').onclick=deleteIncome;$('incomeModal').onclick=function(e){if(e.target===$('incomeModal'))closeIncomeModal()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('incomeModal').className.indexOf('show')>-1)closeIncomeModal()});['incCommission','incAdvertising','incFreight','incWHT','incPaymentFee','incOrderProcessingFee'].forEach(function(id){$(id).addEventListener('input',computeIncomeNet)});$('incNetTotal').addEventListener('input',function(){incomeNetTouched=true});
   var rawMaterials=[],routerMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={},costLineSuppliers={},selectedRouters=[];
-  function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var targetId='view'+name.charAt(0).toUpperCase()+name.slice(1);document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!==targetId});if(name==='costs'){switchCostSubtab(currentCostSubtab||'add')}if(name==='editRaw'){renderRawMatEditRows()}if(name==='paid'){loadLazadaAvailableOrders().then(renderPaid)}if(name==='pending'){loadLazadaAvailableOrders().then(renderPending)}if(name==='incomeDetails'){renderIncomeDetails()}}
+  function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var targetId='view'+name.charAt(0).toUpperCase()+name.slice(1);document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!==targetId});if(name==='costs'){switchCostSubtab(currentCostSubtab||'add')}if(name==='editRaw'){renderRawMatEditRows()}if(name==='paid'){loadLazadaAvailableOrders().then(renderPaid)}if(name==='pending'){loadLazadaAvailableOrders().then(renderPending)}if(name==='incomeDetails'){renderIncomeDetails()}if(name==='salesExport'){renderSalesReport()}}
   var currentCostSubtab='add';
   function switchCostSubtab(name){currentCostSubtab=name;document.querySelectorAll('.sub-tab').forEach(function(b){var on=b.dataset.subtab===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var map={add:'subCostsAdd',others:'subCostsOthers',report:'subCostsReport'};Object.keys(map).forEach(function(k){var el=$(map[k]);if(el)el.hidden=(k!==name)});if(name==='add'){loadCosts();refreshCostOrderOptions()}if(name==='others'){loadCosts();refreshCostOthersOrderOptions()}if(name==='report'){loadCosts().then(renderCostReport)}}
   document.querySelectorAll('.sub-tab').forEach(function(b){b.onclick=function(){switchCostSubtab(b.dataset.subtab)}});
@@ -2101,6 +2190,60 @@ main.shell > *{max-width:100%}
   function renderRawMatEditRows(){var tbody=$('rmRows');if(!rawMaterials.length){tbody.innerHTML='<tr><td colspan="7" class="status-msg">RawMaterials sheet is empty or unavailable.</td></tr>';$('rmCount').textContent='0 materials';return}$('rmCount').textContent=rawMaterials.length+' material'+(rawMaterials.length===1?'':'s');tbody.innerHTML=rawMaterials.map(function(m,i){var sups=Array.isArray(m.suppliers)?m.suppliers:[];var chips=sups.length?sups.map(function(s){return '<span class="supplier-chip">'+esc(s)+'</span>'}).join(''):'<span class="rm-empty-sups">No suppliers yet</span>';var full=sups.length>=10;return '<tr data-row="'+m.rowIndex+'" data-idx="'+i+'"><td class="rm-num" data-mob-label="#">'+(i+1)+'</td><td data-mob-label="Description"><input class="rm-desc" type="text" value="'+esc(m.description)+'" aria-label="Description"></td><td class="rm-qty" data-mob-label="QTY">×'+(Number(m.qty)||0)+'</td><td data-mob-label="Unit Price"><input class="rm-price" type="number" step="0.01" min="0" inputmode="decimal" value="'+(Number(m.unitPrice)||0).toFixed(2)+'" aria-label="Unit price"></td><td class="rm-amount" data-mob-label="Amount">'+money(m.amount)+'</td><td class="rm-sup-cell" data-mob-label="Suppliers"><div class="supplier-chips">'+chips+'</div><div class="supplier-add-row"><input class="rm-new-sup" type="text" placeholder="Add new supplier" '+(full?'disabled':'')+' aria-label="New supplier"><button type="button" class="btn btn-sm rm-add-sup" '+(full?'disabled':'')+'>＋ Add</button></div>'+(full?'<div class="rm-slot-note">All 10 supplier slots are full.</div>':'')+'</td><td data-mob-label=""><button type="button" class="btn primary btn-sm rm-save">Save row</button></td></tr>'}).join('');tbody.querySelectorAll('.rm-save').forEach(function(btn){btn.onclick=function(){saveRawMatRow(btn.closest('tr'))}});tbody.querySelectorAll('.rm-add-sup').forEach(function(btn){btn.onclick=function(){addRawMatSupplier(btn.closest('tr'))}});tbody.querySelectorAll('.rm-new-sup').forEach(function(inp){inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();addRawMatSupplier(inp.closest('tr'))}})})}
   async function saveRawMatRow(tr){var rowIndex=Number(tr.dataset.row);var desc=tr.querySelector('.rm-desc').value.trim();var price=Number(tr.querySelector('.rm-price').value)||0;if(!desc){toast('Description cannot be empty.',true);return}var btn=tr.querySelector('.rm-save');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Saving…';try{await api('/api/raw-materials/'+rowIndex,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({description:desc,unitPrice:price})});toast('Row saved.');await loadRawMaterials();renderRawMatEditRows()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false;btn.textContent=oldText}}
   async function addRawMatSupplier(tr){var rowIndex=Number(tr.dataset.row);var input=tr.querySelector('.rm-new-sup');var name=input.value.trim();if(!name){toast('Type a supplier name first.',true);input.focus();return}var btn=tr.querySelector('.rm-add-sup');btn.disabled=true;input.disabled=true;try{await api('/api/raw-materials/'+rowIndex+'/suppliers',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({supplier:name})});toast('Supplier added.');input.value='';await loadRawMaterials();renderRawMatEditRows()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false;input.disabled=false;input.focus()}}
+  // ============ SALES DATA EXPORT ============
+  var SALES_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var salesReportPage=1;
+  var salesReportPageSize=50;
+  function buildSalesReportRows(){return (records||[]).map(function(r){var qty=Number(r.qty)||1;if(qty<1)qty=1;var price=Number(r.price)||0;var unitPrice=qty>0?price/qty:price;var gross=+(qty*unitPrice).toFixed(2);var commission=Number(r.commissionExpense)||0;var advertising=Number(r.advertisingExpense)||0;var freight=Number(r.freightOutExpense)||0;var wht=Number(r.withHoldingTax)||0;var netTotal=Number(r.netTotal);if(!Number.isFinite(netTotal)||netTotal===0){netTotal=+(gross-commission-advertising-freight-wht).toFixed(2)}var monthApplicable='';var iso=String(r.date||'').match(/^(\d{4})-(\d{2})/);if(iso){monthApplicable=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1]}return {ordNo:'',monthApplicable:monthApplicable,date:String(r.date||''),ordType:'Sales',orderNumber:String(r.orderNumber||''),source:String(r.source||''),exptdDate:'',customer:String(r.customerName||''),productDescription:String(r.description||''),qty:qty,unitPrice:+unitPrice.toFixed(2),gross:gross,commissionExpense:+commission.toFixed(2),advertisingExpense:+advertising.toFixed(2),freightOutExpense:+freight.toFixed(2),others:'',withHoldingTax:+wht.toFixed(2),netTotal:+netTotal.toFixed(2),paymentMode:String(r.paymentMode||''),salesInvoice:'',daysPastDue:''}})}
+  function filteredSalesRows(){var all=buildSalesReportRows();var df=$('salesDateFrom').value||'';var dt=$('salesDateTo').value||'';var month=$('salesMonthFilter').value||'';var source=($('salesSourceFilter').value||'').toLowerCase();var orderQ=($('salesOrderSearch').value||'').toLowerCase().trim();var prodQ=($('salesProductSearch').value||'').toLowerCase().trim();return all.filter(function(r){if(df&&r.date&&r.date<df)return false;if(dt&&r.date&&r.date>dt)return false;if(month&&r.monthApplicable!==month)return false;if(source&&String(r.source).toLowerCase()!==source)return false;if(orderQ&&String(r.orderNumber).toLowerCase().indexOf(orderQ)<0)return false;if(prodQ&&String(r.productDescription).toLowerCase().indexOf(prodQ)<0)return false;return true})}
+  function refreshSalesFilters(){var srcSel=$('salesSourceFilter');if(srcSel){var curSrc=srcSel.value;var srcs={};(records||[]).forEach(function(r){var s=String(r.source||'').trim();if(s)srcs[s]=true});var sortedSrcs=Object.keys(srcs).sort();srcSel.innerHTML='<option value="">All sources</option>'+sortedSrcs.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>'}).join('');if(curSrc&&srcs[curSrc])srcSel.value=curSrc}var monSel=$('salesMonthFilter');if(monSel){var curMon=monSel.value;var months={};(records||[]).forEach(function(r){var iso=String(r.date||'').match(/^(\d{4})-(\d{2})/);if(iso){var key=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1];months[key]=true}});var sortedMonths=Object.keys(months).sort(function(a,b){var ma=a.match(/(\w+) (\d{4})/),mb=b.match(/(\w+) (\d{4})/);if(!ma||!mb)return 0;if(ma[2]!==mb[2])return ma[2]<mb[2]?1:-1;return SALES_MONTHS.indexOf(mb[1])-SALES_MONTHS.indexOf(ma[1])});monSel.innerHTML='<option value="">All Months</option>'+sortedMonths.map(function(m){return '<option value="'+esc(m)+'">'+esc(m)+'</option>'}).join('');if(curMon&&months[curMon])monSel.value=curMon}}
+  function fmt2(n){return (Math.round((Number(n)||0)*100)/100).toFixed(2)}
+  function renderSalesPagination(page,totalPages,total){var el=$('salesPagination');if(!el)return;if(salesReportPageSize==='all'||totalPages<=1){el.innerHTML='<span class="page-info">Showing all '+total+' record'+(total===1?'':'s')+'</span>';return}var startIdx=(page-1)*salesReportPageSize+1;var endIdx=Math.min(page*salesReportPageSize,total);el.innerHTML='<button type="button" class="btn" id="salesPrevBtn"'+(page<=1?' disabled':'')+'>← Prev</button><span class="page-info">'+startIdx+'–'+endIdx+' of '+total+' · Page '+page+' of '+totalPages+'</span><button type="button" class="btn" id="salesNextBtn"'+(page>=totalPages?' disabled':'')+'>Next →</button>';var pb=$('salesPrevBtn');if(pb)pb.onclick=function(){if(salesReportPage>1){salesReportPage--;renderSalesReport()}};var nb=$('salesNextBtn');if(nb)nb.onclick=function(){salesReportPage++;renderSalesReport()}}
+  function renderSalesReport(){refreshSalesFilters();var data=filteredSalesRows();var total=data.length;var pageSize=salesReportPageSize==='all'?total:salesReportPageSize;var totalPages=pageSize>0?Math.max(1,Math.ceil(total/pageSize)):1;if(salesReportPage>totalPages)salesReportPage=1;var start=(salesReportPage-1)*pageSize;var end=salesReportPageSize==='all'?total:start+pageSize;var pageData=data.slice(start,end);var tbody=$('salesReportRows');tbody.innerHTML=pageData.map(function(r){return '<tr>'+
+      '<td data-label="Ord. No.">'+esc(r.ordNo)+'</td>'+
+      '<td data-label="Month Applicable">'+esc(r.monthApplicable)+'</td>'+
+      '<td data-label="Date">'+esc(r.date)+'</td>'+
+      '<td data-label="Ord. Type">'+esc(r.ordType)+'</td>'+
+      '<td data-label="Order Number" class="order-cell">'+esc(r.orderNumber)+'</td>'+
+      '<td data-label="Source">'+esc(r.source)+'</td>'+
+      '<td data-label="Exptd. Date">'+esc(r.exptdDate)+'</td>'+
+      '<td data-label="Customer">'+esc(r.customer)+'</td>'+
+      '<td data-label="Product Description">'+esc(r.productDescription)+'</td>'+
+      '<td data-label="Qty." class="num">'+r.qty+'</td>'+
+      '<td data-label="Unit Price" class="num">'+money(r.unitPrice)+'</td>'+
+      '<td data-label="Gross" class="num">'+money(r.gross)+'</td>'+
+      '<td data-label="Commission Expense" class="num">'+money(r.commissionExpense)+'</td>'+
+      '<td data-label="Advertising Expense" class="num">'+money(r.advertisingExpense)+'</td>'+
+      '<td data-label="Freight Out Expense" class="num">'+money(r.freightOutExpense)+'</td>'+
+      '<td data-label="Others">'+esc(r.others)+'</td>'+
+      '<td data-label="Withholding Tax" class="num">'+money(r.withHoldingTax)+'</td>'+
+      '<td data-label="Net Total" class="num">'+money(r.netTotal)+'</td>'+
+      '<td data-label="Payment Mode">'+esc(r.paymentMode)+'</td>'+
+      '<td data-label="Sales Invoice">'+esc(r.salesInvoice)+'</td>'+
+      '<td data-label="Days Past Due">'+esc(r.daysPastDue)+'</td>'+
+    '</tr>'}).join('');$('salesEmpty').className='empty'+(data.length?'':' show');$('salesCount').textContent=data.length+' record'+(data.length===1?'':'s');
+    // Summary cards
+    var uniqueOrders={};data.forEach(function(r){if(r.orderNumber)uniqueOrders[r.orderNumber]=true});
+    var totalOrders=Object.keys(uniqueOrders).length;
+    var totalQty=data.reduce(function(s,r){return s+(Number(r.qty)||0)},0);
+    var totalGross=data.reduce(function(s,r){return s+(Number(r.gross)||0)},0);
+    var totalCommission=data.reduce(function(s,r){return s+(Number(r.commissionExpense)||0)},0);
+    var totalAdv=data.reduce(function(s,r){return s+(Number(r.advertisingExpense)||0)},0);
+    var totalFrt=data.reduce(function(s,r){return s+(Number(r.freightOutExpense)||0)},0);
+    var totalWht=data.reduce(function(s,r){return s+(Number(r.withHoldingTax)||0)},0);
+    var totalNet=data.reduce(function(s,r){return s+(Number(r.netTotal)||0)},0);
+    $('slTotalOrders').textContent=totalOrders;$('slTotalQty').textContent=totalQty;$('slGross').textContent=money(totalGross);$('slCommission').textContent=money(totalCommission);$('slAdvertising').textContent=money(totalAdv);$('slFreight').textContent=money(totalFrt);$('slWHT').textContent=money(totalWht);$('slNet').textContent=money(totalNet);
+    renderSalesPagination(salesReportPage,totalPages,total)}
+  function clearSalesFilters(){$('salesDateFrom').value='';$('salesDateTo').value='';$('salesMonthFilter').value='';$('salesSourceFilter').value='';$('salesOrderSearch').value='';$('salesProductSearch').value='';salesReportPage=1;renderSalesReport()}
+  function loadXLSXLib(cb){if(typeof XLSX!=='undefined'){cb();return}var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=function(){cb()};s.onerror=function(){toast('Failed to load Excel library. Check internet connection.',true)};document.head.appendChild(s)}
+  function exportSalesReportXlsx(){var data=filteredSalesRows();if(!data.length){toast('No data to export for the current filter.',true);return}var btn=$('salesExportBtn');btn.disabled=true;var oldText=btn.textContent;btn.textContent='Preparing…';loadXLSXLib(function(){try{var headers=['Ord. No.','Month Applicable','Date','Ord. Type','Order Number','Source','Exptd. Date','Customer','Product Description','Qty.','Unit Price','Gross','Commission Expense','Advertising Expense','Freight Out Expense','Others','Withholding Tax','Net Total','Payment Mode','Sales Invoice','Days Past Due'];var aoa=[headers];data.forEach(function(r){var dateVal='';if(r.date&&/^\d{4}-\d{2}-\d{2}/.test(r.date)){var d=new Date(r.date+'T00:00:00');if(!isNaN(d))dateVal=d}aoa.push([r.ordNo,r.monthApplicable,dateVal||r.date,r.ordType,r.orderNumber,r.source,r.exptdDate,r.customer,r.productDescription,Number(r.qty)||0,Number(r.unitPrice)||0,Number(r.gross)||0,Number(r.commissionExpense)||0,Number(r.advertisingExpense)||0,Number(r.freightOutExpense)||0,r.others,Number(r.withHoldingTax)||0,Number(r.netTotal)||0,r.paymentMode,r.salesInvoice,r.daysPastDue])});var ws=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true});ws['!cols']=[{wch:8},{wch:18},{wch:12},{wch:10},{wch:22},{wch:12},{wch:12},{wch:24},{wch:32},{wch:8},{wch:12},{wch:12},{wch:16},{wch:16},{wch:16},{wch:10},{wch:14},{wch:12},{wch:14},{wch:14},{wch:12}];ws['!views']=[{state:'frozen',ySplit:1}];var range=XLSX.utils.decode_range(ws['!ref']);ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:0,c:0},e:{r:range.e.r,c:range.e.c}})};
+      // Format numeric + date columns
+      var moneyCols=[10,11,12,13,14,16,17];var qtyCol=9;var dateCol=2;
+      for(var i=1;i<=data.length;i++){moneyCols.forEach(function(c){var cell=ws[XLSX.utils.encode_cell({r:i,c:c})];if(cell&&cell.v!=null&&cell.v!==''){cell.t='n';cell.z='#,##0.00'}});var qc=ws[XLSX.utils.encode_cell({r:i,c:qtyCol})];if(qc&&qc.v!=null&&qc.v!==''){qc.t='n';qc.z='#,##0'}var dc=ws[XLSX.utils.encode_cell({r:i,c:dateCol})];if(dc&&dc.v instanceof Date){dc.t='d';dc.z='yyyy-mm-dd'}}
+      // Bold header (if styling is supported by this SheetJS build)
+      for(var h=0;h<headers.length;h++){var hc=ws[XLSX.utils.encode_cell({r:0,c:h})];if(hc)hc.s={font:{bold:true}}}
+      var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Sales Data');var monthFilter=$('salesMonthFilter').value;var filename=monthFilter?('Sales_Data_'+monthFilter.replace(/\s+/g,'_')+'.xlsx'):('Sales_Data_'+today()+'.xlsx');XLSX.writeFile(wb,filename);toast('Exported '+data.length+' row'+(data.length===1?'':'s')+' to '+filename);}catch(err){toast('Export failed: '+(err.message||'unknown error'),true)}finally{btn.disabled=false;btn.textContent=oldText}})}
+  // ============ END SALES DATA EXPORT ============
   var COST_REPORT_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
   function buildCostReportRows(){var othersMap={};(othersCostItems||[]).forEach(function(o){var k=String(o.description||'').toLowerCase().trim();if(k)othersMap[k]=true});return (costEntries||[]).map(function(e){var dateStr=String(e.date||'');var year='',month='';var m=dateStr.match(/^(\d{4})-(\d{2})/);if(m){year=m[1];var mn=parseInt(m[2],10);month=COST_REPORT_MONTHS[mn-1]||''}var descKey=String(e.description||'').toLowerCase().trim();var isOthers=othersMap[descKey];return {date:dateStr,year:year,supplierName:e.supplier||'',description:e.description||'',address:'',combine:'',reference:'',tin:'',taxType:'Non-Vat',modeOfPayment:'Bank',amount:Number(e.total)||0,account:isOthers?'8017 - Supplies, office expenses':'5500-Cost of Sales',monthReported:month}})}
   function filteredCostReport(){var all=buildCostReportRows();var q=($('costReportSearch').value||'').toLowerCase().trim();var sup=($('costReportSupplierFilter').value||'').toLowerCase().trim();var df=$('costReportDateFilter').value||'';return all.filter(function(r){if(q){var blob=[r.date,r.year,r.supplierName,r.description,r.account,r.monthReported,r.taxType,r.modeOfPayment].join(' ').toLowerCase();if(blob.indexOf(q)<0)return false}if(sup&&String(r.supplierName).toLowerCase().trim()!==sup)return false;if(df&&!matchesDate({date:r.date},df))return false;return true})}
@@ -2131,6 +2274,13 @@ main.shell > *{max-width:100%}
   $('costRouterPicker').addEventListener('change',function(){var v=this.value;if(v===''||v===null)return;var idx=Number(v);var m=routerMaterials[idx];if(!m)return;selectedRouters.push({idx:idx,qty:1,amount:Number(m.amount)||0,supplier:''});renderSelectedRouters()});
   $('costOthersOrderNumber').addEventListener('change',function(){populateCostOthersForm(this.value)});$('costOthersForm').onsubmit=saveCostOthersEntry;$('costOthersResetBtn').onclick=clearCostOthersForm;$('costOthersDate').value=today();
   ['costReportSearch','costReportSupplierFilter','costReportDateFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener(id==='costReportSearch'?'input':'change',renderCostReport)});var crExport=$('costReportExportBtn');if(crExport)crExport.onclick=exportCostReportCsv;
+  // Sales Export wiring
+  var salesApply=$('salesApplyFilterBtn');if(salesApply)salesApply.onclick=function(){salesReportPage=1;renderSalesReport()};
+  var salesClear=$('salesClearFilterBtn');if(salesClear)salesClear.onclick=clearSalesFilters;
+  var salesExport=$('salesExportBtn');if(salesExport)salesExport.onclick=exportSalesReportXlsx;
+  var salesPageSizeEl=$('salesPageSize');if(salesPageSizeEl)salesPageSizeEl.addEventListener('change',function(){var v=salesPageSizeEl.value;salesReportPageSize=v==='all'?'all':(parseInt(v,10)||50);salesReportPage=1;renderSalesReport()});
+  ['salesOrderSearch','salesProductSearch'].forEach(function(id){var el=$(id);if(el)el.addEventListener('input',function(){salesReportPage=1;renderSalesReport()})});
+  ['salesDateFrom','salesDateTo','salesMonthFilter','salesSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener('change',function(){salesReportPage=1;renderSalesReport()})});
   var lazadaBtn=$('lazadaRecomputeBtn');if(lazadaBtn){lazadaBtn.onclick=async function(){var useFallback=confirm('Recompute deductions for every order using the latest marketplace mappings?\n\nRoutes each record by its Source column: Lazada → IncomeDetails, Shopee → IncomeShopee.\n\nClick OK to use the built-in code fallback ONLY (bypasses the mapping sheets — safest if a sheet has wrong mappings).\n\nClick Cancel to use the mapping sheets (with fallback filling gaps).');lazadaBtn.disabled=true;var oldText=lazadaBtn.textContent;lazadaBtn.textContent='Recomputing…';try{var res=await api('/api/records/marketplace-recompute',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({forceFallback:useFallback})});try{console.log('marketplace-recompute:',res)}catch(_){}var msg='✓ Recomputed '+res.updated+' of '+res.scanned+' records ('+(res.matchedLazada||0)+' Lazada + '+(res.matchedShopee||0)+' Shopee)'+(useFallback?' — using code fallback only':'');if(res.unmappedLabels&&res.unmappedLabels.length)msg+='. ⚠ Unmapped: '+res.unmappedLabels.join(', ');toast(msg);await loadLazadaAvailableOrders();await loadRecords()}catch(err){toast('Recompute failed: '+(err.message||'unknown error'),true)}finally{lazadaBtn.disabled=false;lazadaBtn.textContent=oldText}}}
   $('description').addEventListener('change',toggleLicenseField);
   $('unitPrice').addEventListener('input',recomputePriceFromUnit);$('qty').addEventListener('input',recomputePriceFromUnit);
