@@ -1564,8 +1564,20 @@ main.shell > *{max-width:100%}
 .sales-report-table tr:nth-child(even) td{background:#fbfdff}
 .sales-report-table tr:nth-child(even):hover td{background:var(--accent-softer)}
 .sales-report-table td.order-cell{font-variant-numeric:tabular-nums;font-weight:600;color:var(--primary)}
-#viewSalesExport .table-scroll{overflow-x:auto;max-height:640px}
-.sales-pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 20px;border-top:1px solid var(--line);background:var(--panel2);border-radius:0 0 14px 14px;flex-wrap:wrap}
+#viewSalesExport .table-scroll{overflow:auto;max-height:min(70vh,720px);min-height:340px;background:#fff;border-top:1px solid var(--line)}
+#viewSalesExport .table-scroll::-webkit-scrollbar{width:10px;height:10px}
+#viewSalesExport .table-scroll::-webkit-scrollbar-track{background:#f8fafc}
+#viewSalesExport .table-scroll::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:5px}
+#viewSalesExport .table-scroll::-webkit-scrollbar-thumb:hover{background:#94a3b8}
+.sales-table-panel .panel-title{gap:12px}
+.sales-table-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 20px;background:linear-gradient(180deg,#fbfdff,#fff);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.sales-toolbar-left{display:flex;align-items:center;gap:16px;flex-wrap:wrap;flex:1;min-width:0}
+.sales-page-size-label{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.02em}
+.sales-page-size-label select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px;background:#fff;color:var(--text);cursor:pointer;font-family:inherit;min-height:auto;font-weight:600}
+.sales-scroll-hint{color:var(--muted);font-size:11px;font-style:italic;font-weight:500}
+#salesExportBtn{padding:10px 18px;font-weight:600;font-size:13px;min-height:40px;white-space:nowrap;box-shadow:0 4px 12px rgba(11,42,85,0.20)}
+#salesExportBtn:hover{box-shadow:0 6px 16px rgba(11,42,85,0.30)}
+.sales-pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 20px;border-top:1px solid var(--line);background:var(--panel2);border-radius:0 0 14px 14px;flex-wrap:wrap}
 .sales-pagination .btn{padding:6px 12px;min-height:32px;font-size:12px}
 .sales-pagination .btn:disabled{opacity:.4;cursor:not-allowed}
 .sales-pagination .page-info{font-size:12px;color:var(--muted);font-weight:600;padding:0 8px}
@@ -1583,11 +1595,17 @@ main.shell > *{max-width:100%}
   .sales-report-table td:last-child{border-bottom:none}
   .sales-report-table td.num{text-align:left}
   .sales-report-table tr:nth-child(even) td{background:transparent!important}
-  #viewSalesExport .table-scroll{overflow-x:hidden;max-height:none}
+  #viewSalesExport .table-scroll{overflow:visible;max-height:none;min-height:auto;border-top:none}
+  .sales-scroll-hint{display:none}
+  .sales-table-toolbar{padding:12px 14px;flex-direction:column;align-items:stretch}
+  .sales-toolbar-left{justify-content:space-between}
+  #salesExportBtn{width:100%;min-height:46px}
 }
 @media(max-width:640px){
   .sales-filter-grid{grid-template-columns:1fr}
   .sales-metrics{grid-template-columns:repeat(2,1fr)!important}
+  .sales-filter-actions{flex-direction:column-reverse;align-items:stretch}
+  .sales-filter-actions .btn{width:100%;min-height:46px}
 }
 
 /* Cost & Expenses Report tab */
@@ -1983,9 +2001,16 @@ main.shell > *{max-width:100%}
     <article class="metric"><div class="metric-top"><span>Withholding Tax</span><i class="metric-icon">−</i></div><div class="metric-value" id="slWHT">₱0</div><div class="metric-foot">WHT</div></article>
     <article class="metric"><div class="metric-top"><span>Net Total</span><i class="metric-icon">✓</i></div><div class="metric-value" id="slNet">₱0</div><div class="metric-foot">Net proceeds</div></article>
   </section>
-  <section class="panel table-panel">
-    <div class="panel-title"><h3>Sales Data</h3><div class="cost-log-tools"><span id="salesCount">0 records</span><select id="salesPageSize" aria-label="Rows per page"><option value="25">25 / page</option><option value="50" selected>50 / page</option><option value="100">100 / page</option><option value="all">All</option></select><button type="button" class="btn primary btn-sm" id="salesExportBtn">↓ Export to Excel</button></div></div>
-    <div class="table-scroll">
+  <section class="panel table-panel sales-table-panel">
+    <div class="panel-title"><h3>Sales Data</h3><span id="salesCount">0 records</span></div>
+    <div class="sales-table-toolbar">
+      <div class="sales-toolbar-left">
+        <label class="sales-page-size-label">Rows per page<select id="salesPageSize" aria-label="Rows per page"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option><option value="all">All</option></select></label>
+        <span class="sales-scroll-hint" aria-hidden="true">← Scroll horizontally to see all columns →</span>
+      </div>
+      <button type="button" class="btn primary" id="salesExportBtn">↓ Export to Excel</button>
+    </div>
+    <div class="table-scroll" id="salesTableScroll">
       <table class="sales-report-table">
         <thead><tr><th>Ord. No.</th><th>Month Applicable</th><th>Date</th><th>Ord. Type</th><th>Order Number</th><th>Source</th><th>Exptd. Date</th><th>Customer</th><th>Product Description</th><th class="num">Qty.</th><th class="num">Unit Price</th><th class="num">Gross</th><th class="num">Commission Expense</th><th class="num">Advertising Expense</th><th class="num">Freight Out Expense</th><th>Others</th><th class="num">Withholding Tax</th><th class="num">Net Total</th><th>Payment Mode</th><th>Sales Invoice</th><th>Days Past Due</th></tr></thead>
         <tbody id="salesReportRows"></tbody>
