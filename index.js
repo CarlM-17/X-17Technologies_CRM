@@ -985,6 +985,30 @@ app.get('/api/lazada/available-orders', async (_req, res) => {
   } catch (error) { res.status(502).json({ error: error.message }); }
 });
 
+app.get('/api/marketplace/sales-dates', async (_req, res) => {
+  try {
+    let incRows = [];
+    try { incRows = await getValues(INCOME_DETAILS_SHEET); } catch (e) { console.warn('IncomeDetails read failed:', e.message); }
+    let shopRows = [];
+    try { shopRows = await getValues(SHOPEE_SHEET); } catch (e) { console.warn('IncomeShopee read failed:', e.message); }
+    // IncomeDetails: skip 2 header rows, col K (index 10) = Order Number, col H (index 7) = Date
+    const lazada = {};
+    incRows.slice(2).forEach(r => {
+      const order = normalizeOrder(r?.[10]);
+      const date = parseLazadaDate(r?.[7]);
+      if (order && date && !lazada[order]) lazada[order] = date;
+    });
+    // IncomeShopee: skip 2 header rows, col B (index 1) = Order Number, col K (index 10) = Date
+    const shopee = {};
+    shopRows.slice(2).forEach(r => {
+      const order = normalizeOrder(r?.[SHOPEE_COLS.order]);
+      const date = parseLazadaDate(r?.[10]);
+      if (order && date && !shopee[order]) shopee[order] = date;
+    });
+    res.json({ Lazada: lazada, Shopee: shopee });
+  } catch (error) { res.status(502).json({ error: error.message }); }
+});
+
 app.get('/api/marketplace/available-orders', async (_req, res) => {
   try {
     let incRows = [];
@@ -2187,7 +2211,7 @@ main.shell > *{max-width:100%}
   async function deleteIncome(){if(!incomeCurrentId)return;var r=records.find(function(v){return v.id===incomeCurrentId});if(!confirm('Delete the deductions for '+(r?r.customerName:'this record')+'? The customer record itself will be kept.'))return;var btn=$('incomeDeleteBtn');btn.disabled=true;try{await api('/api/records/'+encodeURIComponent(incomeCurrentId)+'/income',{method:'DELETE'});toast('Deductions cleared.');closeIncomeModal();await loadRecords()}catch(err){toast(err.setup?'Write access needs Railway credentials.':err.message,true);btn.disabled=false}}
   $('incomeForm').onsubmit=saveIncome;$('incomeCancelBtn').onclick=closeIncomeModal;$('closeIncomeBtn').onclick=closeIncomeModal;$('incomeDeleteBtn').onclick=deleteIncome;$('incomeModal').onclick=function(e){if(e.target===$('incomeModal'))closeIncomeModal()};document.addEventListener('keydown',function(e){if(e.key==='Escape'&&$('incomeModal').className.indexOf('show')>-1)closeIncomeModal()});['incCommission','incAdvertising','incFreight','incWHT','incPaymentFee','incOrderProcessingFee'].forEach(function(id){$(id).addEventListener('input',computeIncomeNet)});$('incNetTotal').addEventListener('input',function(){incomeNetTouched=true});
   var rawMaterials=[],routerMaterials=[],costEntries=[],costedOrders=[],costLineAmounts={},costLineSuppliers={},selectedRouters=[];
-  function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var targetId='view'+name.charAt(0).toUpperCase()+name.slice(1);document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!==targetId});if(name==='costs'){switchCostSubtab(currentCostSubtab||'add')}if(name==='editRaw'){renderRawMatEditRows()}if(name==='paid'){loadLazadaAvailableOrders().then(renderPaid)}if(name==='pending'){loadLazadaAvailableOrders().then(renderPending)}if(name==='incomeDetails'){renderIncomeDetails()}if(name==='salesExport'){renderSalesReport()}}
+  function switchView(name){document.querySelectorAll('.view-tab').forEach(function(b){var on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var targetId='view'+name.charAt(0).toUpperCase()+name.slice(1);document.querySelectorAll('.view').forEach(function(v){v.hidden=v.id!==targetId});if(name==='costs'){switchCostSubtab(currentCostSubtab||'add')}if(name==='editRaw'){renderRawMatEditRows()}if(name==='paid'){loadLazadaAvailableOrders().then(renderPaid)}if(name==='pending'){loadLazadaAvailableOrders().then(renderPending)}if(name==='incomeDetails'){renderIncomeDetails()}if(name==='salesExport'){loadMarketplaceSalesDates().then(renderSalesReport)}}
   var currentCostSubtab='add';
   function switchCostSubtab(name){currentCostSubtab=name;document.querySelectorAll('.sub-tab').forEach(function(b){var on=b.dataset.subtab===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false')});var map={add:'subCostsAdd',others:'subCostsOthers',report:'subCostsReport'};Object.keys(map).forEach(function(k){var el=$(map[k]);if(el)el.hidden=(k!==name)});if(name==='add'){loadCosts();refreshCostOrderOptions()}if(name==='others'){loadCosts();refreshCostOthersOrderOptions()}if(name==='report'){loadCosts().then(renderCostReport)}}
   document.querySelectorAll('.sub-tab').forEach(function(b){b.onclick=function(){switchCostSubtab(b.dataset.subtab)}});
@@ -2240,7 +2264,10 @@ main.shell > *{max-width:100%}
   var SALES_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
   var salesReportPage=1;
   var salesReportPageSize=50;
-  function buildSalesReportRows(){return (records||[]).map(function(r){var qty=Number(r.qty)||1;if(qty<1)qty=1;var price=Number(r.price)||0;var unitPrice=qty>0?price/qty:price;var gross=+(qty*unitPrice).toFixed(2);var commission=Number(r.commissionExpense)||0;var advertising=Number(r.advertisingExpense)||0;var freight=Number(r.freightOutExpense)||0;var wht=Number(r.withHoldingTax)||0;var netTotal=Number(r.netTotal);if(!Number.isFinite(netTotal)||netTotal===0){netTotal=+(gross-commission-advertising-freight-wht).toFixed(2)}var monthApplicable='';var iso=String(r.date||'').match(/^(\d{4})-(\d{2})/);if(iso){monthApplicable=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1]}return {ordNo:'',monthApplicable:monthApplicable,date:String(r.date||''),ordType:'Sales',orderNumber:String(r.orderNumber||''),source:String(r.source||''),exptdDate:'',customer:String(r.customerName||''),productDescription:String(r.description||''),qty:qty,unitPrice:+unitPrice.toFixed(2),gross:gross,commissionExpense:+commission.toFixed(2),advertisingExpense:+advertising.toFixed(2),freightOutExpense:+freight.toFixed(2),others:'',withHoldingTax:+wht.toFixed(2),netTotal:+netTotal.toFixed(2),paymentMode:String(r.paymentMode||''),salesInvoice:'',daysPastDue:''}})}
+  var marketplaceSalesDates={Lazada:{},Shopee:{}};
+  async function loadMarketplaceSalesDates(){try{var d=await api('/api/marketplace/sales-dates');marketplaceSalesDates={Lazada:d.Lazada||{},Shopee:d.Shopee||{}}}catch(e){marketplaceSalesDates={Lazada:{},Shopee:{}}}}
+  function _marketplaceDateFor(r){if(!r||!r.orderNumber)return '';var src=String(r.source||'').trim();var isShopee=/shopee/i.test(src);var bucket=isShopee?marketplaceSalesDates.Shopee:marketplaceSalesDates.Lazada;return (bucket&&bucket[String(r.orderNumber).trim()])||''}
+  function buildSalesReportRows(){return (records||[]).map(function(r){var mpDate=_marketplaceDateFor(r);return {r:r,mpDate:mpDate}}).filter(function(x){return Boolean(x.mpDate)}).map(function(x){var r=x.r;var qty=Number(r.qty)||1;if(qty<1)qty=1;var price=Number(r.price)||0;var unitPrice=qty>0?price/qty:price;var gross=+(qty*unitPrice).toFixed(2);var commission=Number(r.commissionExpense)||0;var advertising=Number(r.advertisingExpense)||0;var freight=Number(r.freightOutExpense)||0;var wht=Number(r.withHoldingTax)||0;var netTotal=Number(r.netTotal);if(!Number.isFinite(netTotal)||netTotal===0){netTotal=+(gross-commission-advertising-freight-wht).toFixed(2)}var monthApplicable='';var iso=String(x.mpDate||'').match(/^(\d{4})-(\d{2})/);if(iso){monthApplicable=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1]}return {ordNo:'',monthApplicable:monthApplicable,date:String(x.mpDate||''),ordType:'Sales',orderNumber:String(r.orderNumber||''),source:String(r.source||''),exptdDate:'',customer:String(r.customerName||''),productDescription:String(r.description||''),qty:qty,unitPrice:+unitPrice.toFixed(2),gross:gross,commissionExpense:+commission.toFixed(2),advertisingExpense:+advertising.toFixed(2),freightOutExpense:+freight.toFixed(2),others:'',withHoldingTax:+wht.toFixed(2),netTotal:+netTotal.toFixed(2),paymentMode:String(r.paymentMode||''),salesInvoice:'',daysPastDue:''}})}
   function _slVal(id){var el=$(id);return el?(el.value||''):''}
   function filteredSalesRows(){var all=buildSalesReportRows();var df=_slVal('salesDateFrom');var dt=_slVal('salesDateTo');var month=_slVal('salesMonthFilter');var source=_slVal('salesSourceFilter').toLowerCase();var q=_slVal('salesSearch').toLowerCase().trim();return all.filter(function(r){if(df&&r.date&&r.date<df)return false;if(dt&&r.date&&r.date>dt)return false;if(month&&r.monthApplicable!==month)return false;if(source&&String(r.source).toLowerCase()!==source)return false;if(q){var blob=[r.orderNumber,r.customer,r.productDescription,r.source,r.paymentMode].join(' ').toLowerCase();if(blob.indexOf(q)<0)return false}return true})}
   function refreshSalesFilters(){var srcSel=$('salesSourceFilter');if(srcSel){var curSrc=srcSel.value;var srcs={};(records||[]).forEach(function(r){var s=String(r.source||'').trim();if(s)srcs[s]=true});var sortedSrcs=Object.keys(srcs).sort();srcSel.innerHTML='<option value="">All sources</option>'+sortedSrcs.map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>'}).join('');if(curSrc&&srcs[curSrc])srcSel.value=curSrc}var monSel=$('salesMonthFilter');if(monSel){var curMon=monSel.value;var months={};(records||[]).forEach(function(r){var iso=String(r.date||'').match(/^(\d{4})-(\d{2})/);if(iso){var key=SALES_MONTHS[parseInt(iso[2],10)-1]+' '+iso[1];months[key]=true}});var sortedMonths=Object.keys(months).sort(function(a,b){var ma=a.match(/(\w+) (\d{4})/),mb=b.match(/(\w+) (\d{4})/);if(!ma||!mb)return 0;if(ma[2]!==mb[2])return ma[2]<mb[2]?1:-1;return SALES_MONTHS.indexOf(mb[1])-SALES_MONTHS.indexOf(ma[1])});monSel.innerHTML='<option value="">All Months</option>'+sortedMonths.map(function(m){return '<option value="'+esc(m)+'">'+esc(m)+'</option>'}).join('');if(curMon&&months[curMon])monSel.value=curMon}}
