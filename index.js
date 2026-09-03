@@ -1546,8 +1546,22 @@ main.shell > *{max-width:100%}
 .cost-items-grid .cost-item select.supplier-select{cursor:pointer;appearance:auto}
 
 /* Sales Data Export tab */
-.sales-filter-panel .form-body{padding:16px 20px}
-.sales-filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 14px}
+.sales-hero-panel{padding:0!important;background:linear-gradient(135deg,var(--primary) 0%,#13315c 55%,#1e3a8a 100%)!important;color:#fff;border:none!important;overflow:hidden;position:relative;box-shadow:0 20px 50px rgba(11,42,85,0.25)!important;margin-bottom:16px}
+.sales-hero-panel::before{content:"";position:absolute;right:-80px;top:-100px;width:340px;height:340px;border-radius:50%;background:radial-gradient(circle at 40% 40%,rgba(96,165,250,0.35),transparent 60%);pointer-events:none}
+.sales-hero-panel::after{content:"";position:absolute;left:-60px;bottom:-90px;width:220px;height:220px;border:1px solid rgba(255,255,255,0.07);border-radius:50%;box-shadow:0 0 0 30px rgba(255,255,255,0.03);pointer-events:none}
+.sales-hero-inner{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:26px 30px;flex-wrap:wrap}
+.sales-hero-copy{flex:1;min-width:240px}
+.sales-hero-eyebrow{color:#93c5fd;font-size:11px;font-weight:800;letter-spacing:2.4px;text-transform:uppercase;margin-bottom:6px}
+.sales-hero-title{color:#fff;font-size:26px;font-weight:700;letter-spacing:-.02em;margin:0 0 6px;background:linear-gradient(120deg,#fff 20%,#bfdbfe 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sales-hero-sub{color:rgba(255,255,255,0.78);font-size:13px;margin:0;max-width:640px;line-height:1.5}
+.sales-hero-export{padding:14px 26px!important;font-size:14px!important;font-weight:700!important;min-height:52px;background:#fff!important;color:var(--primary)!important;border:none!important;box-shadow:0 8px 24px rgba(0,0,0,0.22)!important;border-radius:12px!important;white-space:nowrap;letter-spacing:-.005em}
+.sales-hero-export:hover{background:#EAF3FF!important;color:var(--primary)!important;transform:translateY(-2px);box-shadow:0 12px 32px rgba(0,0,0,0.32)!important}
+.sales-hero-export:active{transform:translateY(0)}
+
+.sales-filter-panel{margin-bottom:16px}
+.sales-filter-panel .panel-title{background:linear-gradient(180deg,#fbfdff,#fff)!important}
+.sales-filter-panel .form-body{padding:18px 22px}
+.sales-filter-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px 16px}
 .sales-filter-actions{display:flex!important;justify-content:flex-end!important;gap:10px!important;grid-template-columns:none!important;margin-top:14px!important;padding-top:14px!important;border-top:1px solid var(--line)}
 .sales-metrics{grid-template-columns:repeat(8,1fr)!important;margin:0 0 16px!important;gap:10px}
 .sales-metrics .metric{padding:12px 14px!important}
@@ -1584,6 +1598,14 @@ main.shell > *{max-width:100%}
 @media(max-width:1100px){
   .sales-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .sales-metrics{grid-template-columns:repeat(4,1fr)!important}
+  .sales-hero-title{font-size:22px}
+  .sales-hero-inner{padding:22px 24px}
+}
+@media(max-width:800px){
+  .sales-hero-inner{padding:20px 20px;flex-direction:column;align-items:stretch;gap:14px}
+  .sales-hero-title{font-size:20px}
+  .sales-hero-sub{font-size:12px}
+  .sales-hero-export{width:100%;justify-content:center}
 }
 @media(max-width:900px){
   .sales-report-table{min-width:0}
@@ -1974,6 +1996,16 @@ main.shell > *{max-width:100%}
 <div class="view" id="viewSalesExport" hidden>
 <section class="workspace cost-workspace">
 <div class="content">
+  <section class="panel sales-hero-panel">
+    <div class="sales-hero-inner">
+      <div class="sales-hero-copy">
+        <div class="sales-hero-eyebrow">DATA EXPORT</div>
+        <h2 class="sales-hero-title">Sales Data</h2>
+        <p class="sales-hero-sub">Filter your sales records and download the current view as an Excel workbook.</p>
+      </div>
+      <button type="button" class="btn primary sales-hero-export" id="salesExportBtnHero">↓ Export to Excel</button>
+    </div>
+  </section>
   <section class="panel sales-filter-panel">
     <div class="panel-title"><h3>Sales Data Filters</h3></div>
     <div class="form-body">
@@ -2303,6 +2335,7 @@ main.shell > *{max-width:100%}
   var salesApply=$('salesApplyFilterBtn');if(salesApply)salesApply.onclick=function(){salesReportPage=1;renderSalesReport()};
   var salesClear=$('salesClearFilterBtn');if(salesClear)salesClear.onclick=clearSalesFilters;
   var salesExport=$('salesExportBtn');if(salesExport)salesExport.onclick=exportSalesReportXlsx;
+  var salesExportHero=$('salesExportBtnHero');if(salesExportHero)salesExportHero.onclick=exportSalesReportXlsx;
   var salesPageSizeEl=$('salesPageSize');if(salesPageSizeEl)salesPageSizeEl.addEventListener('change',function(){var v=salesPageSizeEl.value;salesReportPageSize=v==='all'?'all':(parseInt(v,10)||50);salesReportPage=1;renderSalesReport()});
   ['salesOrderSearch','salesProductSearch'].forEach(function(id){var el=$(id);if(el)el.addEventListener('input',function(){salesReportPage=1;renderSalesReport()})});
   ['salesDateFrom','salesDateTo','salesMonthFilter','salesSourceFilter'].forEach(function(id){var el=$(id);if(el)el.addEventListener('change',function(){salesReportPage=1;renderSalesReport()})});
